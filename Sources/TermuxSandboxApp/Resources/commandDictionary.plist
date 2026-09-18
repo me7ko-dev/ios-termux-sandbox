@@ -723,5 +723,40 @@
 		<string></string>
 		<string>no</string>
 	</array>
+	<!-- Added this session for python3_ios/lua_ios support (see Docs/STATUS.md).
+	     Framework/function names verified directly against the downloaded
+	     xcframework headers and binary symbol table, not copied blindly from
+	     a-Shell's current plist — a-Shell has since moved to a much newer,
+	     differently-packaged Python (3.13, "Python.framework/Py_BytesMain")
+	     that doesn't match the python3_ios v1.0 (Python 3.7.13) binary this
+	     project actually depends on. -->
+	<key>python3</key>
+	<array>
+		<string>python3_ios.framework/python3_ios</string>
+		<string>python_main</string>
+		<string>3bBc:dEhiJm:OQ:RsStuUvVW:xX?</string>
+		<string>file</string>
+	</array>
+	<key>python</key>
+	<array>
+		<string>python3_ios.framework/python3_ios</string>
+		<string>python_main</string>
+		<string>3bBc:dEhiJm:OQ:RsStuUvVW:xX?</string>
+		<string>file</string>
+	</array>
+	<key>lua</key>
+	<array>
+		<string>lua_ios.framework/lua_ios</string>
+		<string>lua_main</string>
+		<string>e:il:vE</string>
+		<string>file</string>
+	</array>
+	<key>luac</key>
+	<array>
+		<string>lua_ios.framework/lua_ios</string>
+		<string>luac_main</string>
+		<string>lpsvo:</string>
+		<string>file</string>
+	</array>
 </dict>
 </plist>

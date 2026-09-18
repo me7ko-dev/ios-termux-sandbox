@@ -40,8 +40,23 @@ final class ShellEngine {
         ios_setMiniRoot(workingDirectory.path)
 
         initializeEnvironment()
+        configurePythonEnvironment()
         loadBundledCommandDictionary()
         CommandRegistry.registerAll()
+    }
+
+    /// python3_ios ships an interpreter binary with no standard library at
+    /// all — `import os`/`import json`/etc. need PYTHONHOME pointing at a
+    /// real `lib/python3.7/` tree, which we bundle as a resource (see
+    /// Package.swift). PYTHONDONTWRITEBYTECODE avoids python trying to
+    /// write .pyc cache files back into the (read-only) app bundle.
+    private func configurePythonEnvironment() {
+        guard let pythonHome = Bundle.module.path(forResource: "PythonHome", ofType: nil) else {
+            assertionFailure("PythonHome resource missing from bundle")
+            return
+        }
+        setenv("PYTHONHOME", pythonHome, 1)
+        setenv("PYTHONDONTWRITEBYTECODE", "1", 1)
     }
 
     /// `initializeEnvironment()` alone does not register `man`/`perl` or the

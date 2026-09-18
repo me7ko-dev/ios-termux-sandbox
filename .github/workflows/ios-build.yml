@@ -42,6 +42,14 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Build GitCommand
+        run: |
+          xcodebuild build \
+            -scheme GitCommand \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build TermuxSandboxApp
         run: |
           xcodebuild build \

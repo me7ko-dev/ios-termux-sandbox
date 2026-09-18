@@ -92,17 +92,16 @@ Termux паритетна нужда — почти никой не ползва
 **Усилие:** средно. **Стойност:** UX паритет с Termux tabs, не е блокер за
 базова функционалност.
 
-## 5. Python (python_ios / embedded CPython)
-holzschu поддържа отделен `python_ios` repo (статично компилиран CPython за
-iOS) — това е "python via embedded interpreter", за което оригиналният
-бриф изрично пита. По-тежко от горните: изисква vendoring на прекомпилиран
-`Python.xcframework` (compile-from-source на CPython за iOS от нулата не е
-разумно за ръчна поддръжка) и внимание към `pip install` — работят само
-чисти Python пакети или такива с precompiled wheels за iOS; нищо с C
-extension компилация на място (пак заради sandbox забраната за компилатор
-extern процес).
-**Усилие:** високо. **Стойност:** висока — това е single biggest "истински
-Termux" очакване от потребителите.
+## 5. Python (python_ios / embedded CPython) — [DONE в Сесия 4, чака build]
+
+Виж `Docs/STATUS.md` Сесия 4 за пълните детайли — `python3_ios` +
+bundlнат CPython 3.7.13 stdlib (свален от `python/cpython` @ `v3.7.13`,
+подрязан). Останало: реален device тест (`python3 -c "import os, json;
+print('ok')"`), `pip install` изобщо не е адресиран (само чисти Python
+пакети биха работили — никаква C extension компилация на място), и
+оценка дали да мигрираме към по-нов Python (a-Shell вече е на 3.13, но
+няма преизползваем SPM пакет за него — би значило vendoring на
+собствен prebuilt `Python.xcframework`).
 
 ## 6. `bc`/`dc` (по избор, малко усилие)
 `bc_ios` няма отделен SPM repo, но самият `bc`/`dc` изходен код е обикновен,
@@ -111,8 +110,26 @@ Termux" очакване от потребителите.
 holzschu да пусне SPM пакет за него. Ниско приоритетно — рядко ползвана
 Termux команда.
 
+## 7. `git` (SwiftGit2) — [DONE в Сесия 4, чака build] с реално ограничение
+
+`Sources/GitCommand/` покрива `init`/`clone`/`status`/`add`/`commit`/`log`/
+`fetch` през `light-tech/SwiftGit2`. **Push/pull/merge/branch/checkout не
+съществуват в тази библиотека изобщо** — проверено директно в source-а
+(`SwiftGit2/Repository.swift`, `Remotes.swift`), не предположено. Единственият
+път напред е суров `Clibgit2` C API (`git_remote_push`, `git_push_options`,
+refspecs на ръка) — обем, сравним с писането на нов SwiftGit2 модул, и
+без нито едно устройство за реален тест на network/auth код от този
+калибър. Не пипай това, докато нямаме поне веднъж потвърден работещ
+build на реално устройство/Simulator. Друго хванато ограничение:
+`commit(message:signature:)` не може да направи самия първи commit в
+чисто нов repo (няма public API за zero-parent tree write извън
+модула) — работи само след `clone` или следващи commit-и.
+
 ---
 
-Актуализиран ред на изпълнение: **т.1 done → т.2 → т.5**, защото т.2
-отключва интерактивност за всичко останало (включително т.5), а т.3/т.4/т.6
-са самостоятелни подобрения, които не блокират нищо друго.
+Актуализиран ред на изпълнение: **т.1, т.2, т.5, т.7 done, чакат build**.
+Останало необвързано: т.3 (SSH ключове), т.4 (multi-tab), т.6 (bc/dc) —
+самостоятелни подобрения, не блокират нищо друго. Следваща реална
+стъпка е device/Simulator тест на всичко натрупано дотук, не поредна
+библиотека — купчината неверифицирано (само CI-compiled) вече е
+достатъчно голяма.

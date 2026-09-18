@@ -2,6 +2,60 @@
 
 Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
 
+## Сесия 4 (2026-09-18, продължение) — Python, Lua, git, network_ios
+
+Четири нови "библиотеки" добавени наведнъж, всяка верифицирана срещу
+реалните upstream файлове (headers/binary symbols/checksums свалени и
+проверени на ръка), не по памет:
+
+**Python 3.7.13** (`python3_ios` + `pythonA-E` binary targets). Открих
+чрез сваляне и разглеждане на реалния xcframework, че framework-ът е
+`python3_ios.framework`, функцията — `python_main` (потвърдено от
+header-а), **не** `Python.framework/Py_BytesMain`, както е в текущия
+a-Shell plist — a-Shell вече е мигрирал към много по-нов, различно
+пакетиран Python 3.13, който не е достъпен като преизползваем SPM пакет.
+По-важно: тези binary targets **не носят никакъв `.py` файл** — чист
+интерпретатор без стандартна библиотека, `import os` би гръмнал веднага.
+Добавих `Sources/TermuxSandboxApp/Resources/PythonHome/lib/python3.7/`
+— истинска, изтеглена (sparse git clone на `python/cpython` @ `v3.7.13`,
+същата версия) стандартна библиотека, подрязана от 42MB/1635 файла до
+17MB/620 (маха `test/`, `idlelib/`, `turtledemo/` — GUI/тестови неща без
+стойност в терминал). `ShellEngine.configurePythonEnvironment()` сочи
+`PYTHONHOME` към нея при старт. PSF лиценз копиран до нея.
+
+**Lua** (`lua_ios`). Символите `lua_main`/`luac_main` потвърдени с груб
+strings-еквивалент върху сваления binary (нямаше `nm`/`strings`/`objdump`
+на разположение тук — написах Python regex вариант). a-Shell-ският plist
+запис за lua излезе точен, преизползван директно.
+
+**`network_ios` — възстановен.** Форкнах в
+`me7ko-dev/network_ios`, поправих единствено checksum-а в `Package.swift`
+(реалният sha256 на v0.2 асета е `18e96112...`, не `89a465b3...`, каквото
+пише upstream) — `.zip`-ът пак идва от оригиналния holzschu release URL,
+форкът само коригира едно число. (Страничен ефект: `git checkout` на
+форка се спъна в няколко Windows-невалидни имена на файлове от
+vendored bind9 source tree и в крайна сметка commit-на само поправения
+`Package.swift` — безобидно, SPM никога не чете тези C-файлове за
+`.binaryTarget`.)
+
+**`git`** — ново, писано от нулата, `Sources/GitCommand/`, върху
+`light-tech/SwiftGit2` (`spm` branch — единствената, некотвена версия с
+изобщо SPM поддръжка) + транзитивен `Clibgit2` (прекомпилиран libgit2,
+checksum проверен на ръка). Поддържа: `init`, `clone` (с опционална
+HTTPS token автентикация през `GIT_USERNAME`/`GIT_TOKEN` env vars),
+`status`, `add`, `commit`, `log`, `fetch` (само публични repo-та).
+**Съзнателно НЕ поддържа `push`/`pull`/`merge`/`branch`/`checkout`** —
+проверих директно в SwiftGit2 source-а: тази библиотека изобщо няма
+Swift API за push или merge, само суровия `Clibgit2` C API го има, а
+писане на собствени bindings за push/refspecs без нито едно устройство
+за тест е риск, който съзнателно не поемам тук. Друго реално
+ограничение, хванато при четене на кода: `commit(message:signature:)`
+изисква вече съществуващ HEAD/parent — не може да направи самия първи
+commit в чисто нов repo (нужният `unsafeIndex()`/tree-writing API не е
+public извън SwiftGit2 модула). И двете — записани в кода, не догадки.
+
+**Резултат:** чака следващия CI run — виж GitHub Actions.
+
 ## Сесия 3 (2026-09-18, продължение) — първи реален CI build
 
 Добавен `.github/workflows/ios-build.yml` — build на `macos-15` GitHub

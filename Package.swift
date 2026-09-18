@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
         .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
+        .library(name: "GitCommand", targets: ["GitCommand"]),
         // Was missing — without this, an Xcode App target can't `import
         // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
         .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
@@ -31,14 +32,31 @@ let package = Package(
         // dig/host/ifconfig/nc/nslookup/ping/rlogin/telnet/whois/wol — not part
         // of ios_system's own Package.swift targets, needs its own dependency.
         //
-        // TEMPORARILY DISABLED (2026-09-18): network_ios's own Package.swift
-        // declares a binary-target checksum that no longer matches the actual
-        // release asset at holzschu/network_ios — `swift package resolve`
-        // fails with a checksum mismatch regardless of what we pin here (an
-        // upstream bug, not something under our control). Re-enable once
-        // holzschu fixes the release, or fork and patch the checksum
-        // ourselves. See Docs/NEXT_STEPS.md.
-        // .package(url: "https://github.com/holzschu/network_ios.git", branch: "master")
+        // Points at our own fork, not holzschu/network_ios directly: upstream's
+        // Package.swift declares a binary-target checksum (89a465b3...) that no
+        // longer matches the actual v0.2 release asset (real sha256 is
+        // 18e96112..., verified by hand) — swift package resolve fails
+        // regardless of what revision we pin there. The fork changes nothing
+        // but that one checksum; the .zip itself is still fetched from
+        // holzschu's original release URL. See Docs/STATUS.md.
+        .package(url: "https://github.com/me7ko-dev/network_ios.git", branch: "master"),
+
+        // Python 3.7.13 interpreter, precompiled for iOS — see
+        // Docs/STATUS.md for how PYTHONHOME is wired up (bundled stdlib
+        // resource, since these binary targets ship no .py files at all).
+        .package(url: "https://github.com/holzschu/python3_ios.git", from: "1.0.0"),
+
+        // Lua interpreter, precompiled for iOS.
+        .package(url: "https://github.com/holzschu/lua_ios.git", from: "1.0.0"),
+
+        // Swift bindings to libgit2, for the "git" command below. Tracks the
+        // `spm` branch, not a version tag: this fork's SPM support only
+        // exists there — its own semver tags (0.4.0-0.6.0) are inherited
+        // history from upstream SwiftGit2/SwiftGit2 predating the SPM/iOS
+        // port and have no Package.swift at all. Transitively pulls in
+        // Clibgit2 (a prebuilt libgit2 xcframework, checksum verified by
+        // hand against the real release asset).
+        .package(url: "https://github.com/light-tech/SwiftGit2.git", branch: "spm")
     ],
     targets: [
         // MARK: - New commands (this session's deliverable)
@@ -58,6 +76,16 @@ let package = Package(
             ]
         ),
 
+        // Deliberately partial `git` — see GitCommand.swift's header comment
+        // for exactly what SwiftGit2's API does and doesn't cover.
+        .target(
+            name: "GitCommand",
+            dependencies: [
+                .product(name: "SwiftGit2", package: "SwiftGit2"),
+                .product(name: "ios_system", package: "ios_system")
+            ]
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -69,10 +97,13 @@ let package = Package(
             name: "TermuxSandboxApp",
             dependencies: [
                 .product(name: "ios_system", package: "ios_system"),
-                // network_ios temporarily disabled — see dependencies list above.
+                .product(name: "network_ios", package: "network_ios"),
+                .product(name: "Python", package: "python3_ios"),
+                .product(name: "lua_ios", package: "lua_ios"),
                 "SwiftTerm",
                 "SysInfoCommand",
-                "SSHClientCommand"
+                "SSHClientCommand",
+                "GitCommand"
             ],
             resources: [
                 // Command→framework/function map, filtered from a-Shell's own
@@ -81,7 +112,18 @@ let package = Package(
                 // item 1. Loaded explicitly via addCommandList() in
                 // ShellEngine.start(); not something ios_system registers on
                 // its own from a plain `initializeEnvironment()` call.
-                .copy("Resources/commandDictionary.plist")
+                .copy("Resources/commandDictionary.plist"),
+
+                // python3_ios ships zero .py files — the interpreter binary
+                // alone has no standard library to import os/json/etc. from.
+                // This is a trimmed (no test/idlelib/turtledemo) copy of
+                // CPython v3.7.13's own Lib/ directory — the exact version
+                // python3_ios embeds — laid out as PYTHONHOME expects:
+                // <PYTHONHOME>/lib/python3.7/*.py. See ShellEngine.start()
+                // for where PYTHONHOME actually gets pointed at this bundle,
+                // and Docs/STATUS.md for provenance/licensing (PSF license
+                // included alongside).
+                .copy("Resources/PythonHome")
             ]
         )
     ]
