@@ -37,19 +37,7 @@ let package = Package(
         // failure we saw with network_ios below) and includes an ios-arm64
         // slice for real-device builds, not just the simulator. See
         // Docs/ROADMAP.md Track A.
-        .package(url: "https://github.com/joehinkle11/SwiftGit3.git", exact: "1.2.2"),
-
-        // dig/host/ifconfig/nc/nslookup/ping/rlogin/telnet/whois/wol — not part
-        // of ios_system's own Package.swift targets, needs its own dependency.
-        //
-        // TEMPORARILY DISABLED (2026-09-18): network_ios's own Package.swift
-        // declares a binary-target checksum that no longer matches the actual
-        // release asset at holzschu/network_ios — `swift package resolve`
-        // fails with a checksum mismatch regardless of what we pin here (an
-        // upstream bug, not something under our control). Re-enable once
-        // holzschu fixes the release, or fork and patch the checksum
-        // ourselves. See Docs/NEXT_STEPS.md.
-        // .package(url: "https://github.com/holzschu/network_ios.git", branch: "master")
+        .package(url: "https://github.com/joehinkle11/SwiftGit3.git", exact: "1.2.2")
     ],
     targets: [
         // MARK: - New commands (this session's deliverable)
@@ -77,6 +65,26 @@ let package = Package(
             ]
         ),
 
+        // dig/host/ifconfig/nc/nslookup/ping/ping6/rlogin/telnet/whois/wol —
+        // not part of ios_system's own Package.swift targets.
+        //
+        // holzschu/network_ios's own Package.swift binary-target checksum
+        // doesn't match its actual v0.2 release asset (verified directly:
+        // `shasum -a 256` on the downloaded zip gives
+        // 18e96112ae86ec39390487d850e7732d88e446f9f233b2792d633933d4606d46,
+        // not the 89a465b3... the manifest declares) — an upstream bug we
+        // can't fix by pinning a different version number. Vendoring the
+        // xcframework locally (same pattern as SwiftGit3 above) sidesteps
+        // the checksum mechanism entirely, since it only applies to remote
+        // binaryTargets. Trimmed to the ios-arm64 device slice only (real
+        // download included simulator + Mac Catalyst slices and dSYMs we
+        // don't need, at ~7x the size) — matches this project's CI, which
+        // already builds for generic iOS device, not the simulator.
+        .binaryTarget(
+            name: "network_ios",
+            path: "Vendor/network_ios.xcframework"
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -88,7 +96,7 @@ let package = Package(
             name: "TermuxSandboxApp",
             dependencies: [
                 .product(name: "ios_system", package: "ios_system"),
-                // network_ios temporarily disabled — see dependencies list above.
+                "network_ios",
                 "SwiftTerm",
                 "SysInfoCommand",
                 "SSHClientCommand",

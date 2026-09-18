@@ -129,6 +129,40 @@ merge helper, а fetch-only без merge е подвеждащо да се ка�
 **Останало за Mac/CI:** build + реален тест: clone на публично repo,
 edit + add + commit + push към тестов remote с PAT.
 
+## 3.6. Re-enable `network_ios` — [DONE в Сесия 4, чака build]
+
+Точка 1 по-горе спомена проблема с checksum-а на `network_ios`; ето реалната
+поправка. Свалих истинския release asset (`v0.2/network_ios.xcframework.zip`)
+и сравних `sha256` директно:
+
+```
+свален файл:  18e96112ae86ec39390487d850e7732d88e446f9f233b2792d633933d4606d46
+manifest-ът:  89a465b32e8aed3fcbab0691d8cb9abeecc54ec6f872181dad97bb105b72430a
+```
+
+Не съвпадат — потвърден upstream bug, не нещо, което ние сме объркали.
+Вместо да чакаме holzschu да го оправи (или да форкваме чужд repo), 
+vendor-нах xcframework-а директно в нашия repo, по същия модел като
+`SwiftGit3` за git т.3.5: `Vendor/network_ios.xcframework`, ново
+`.binaryTarget(name: "network_ios", path: ...)` в `Package.swift`, без
+никаква remote URL/checksum зависимост изобщо — checksum механизмът важи
+само за remote binary targets, локален `path:` го заобикаля напълно.
+
+Изтрих от него всичко извън `ios-arm64` (simulator + Mac Catalyst slices +
+dSYMs) — 73MB → 11MB, а и без друго CI-то тук build-ва generic iOS device,
+не simulator (виж `2fc423b`/по-стар commit). Ако някога ни потрябва
+simulator build, изтегли отново пълния zip и добави тази slice обратно.
+
+Самите command→function mappings (`dig_main`, `ping_main`, `netcat_main`
+и т.н.) вече бяха в `commandDictionary.plist` от Сесия 2 — просто чакаха
+framework-ът да бъде реално линкнат. Няма нужда от нов Swift wrapper код:
+`ios_system` намира тези символи през `dlsym` на целия process image,
+щом framework-ът е embed-нат.
+
+**Останало за Mac/CI:** build + `ping 8.8.8.8`/`dig example.com` на реално
+устройство, за да потвърдим, че dlsym наистина хваща символите (виж
+предупреждението в т.1 за тихи failures на ниво отделна команда).
+
 ## 4. Multi-tab / множество сесии
 `ios_system` поддържа паралелни сесии през `ios_switchSession(sessionid)` —
 всяка с отделен working directory и environment. Нарочно не го включих в
