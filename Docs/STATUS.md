@@ -2,6 +2,57 @@
 
 Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
 
+## Сесия 4 (2026-09-18, продължение) — git, SSH ключове, network_ios, bc/dc, Python
+
+Разширяване по `Docs/ROADMAP.md` — целта смени обхвата от "верифицирай
+съществуващото" към "вкарай максимума реална Termux функционалност,
+докато native track-ът продължава да компилира". Пет последователни
+commit-а, всеки push-нат и проверен през CI отделно:
+
+1. **SSH ключове за `sshc`** (`-i keyfile [-kp passphrase]`, RSA/ed25519
+   през Citadel's `SSHKeyDetection`) — първият push не компилира
+   (`Result<_, String>`, String не conform-ва на `Error`), оправено с
+   малък `KeyAuthError` wrapper. Виж `NEXT_STEPS.md` т.3.
+2. **`git` команда** — нов `GitCommand` target върху
+   `joehinkle11/SwiftGit3` (fork на SwiftGit2 с vendor-нати prebuilt
+   libgit2/libssh2/openssl xcframeworks, реален `ios-arm64` device slice).
+   `clone`/`status`/`add`/`commit`/`log`/`push`. Виж т.3.5.
+3. **`network_ios` re-enable** — потвърдих upstream checksum bug-а с
+   директен `sha256sum` (не просто "не работи"), после vendor-нах
+   xcframework-а локално (`Vendor/network_ios.xcframework`, `path:`
+   binaryTarget вместо `url:`+`checksum:`) вместо да чакам upstream
+   fix. Отключва `dig`/`ping`/`nc`/`telnet`/... Виж т.3.6.
+4. **`bc`/`dc`** — от нулата на чист Swift (не port на GNU C source),
+   съзнателно `Double`-precision, не arbitrary-precision. Първият push
+   не компилира (`BCParser(trimmed).parseExpression()` — mutating метод
+   върху temporary struct стойност), оправено в следващия commit. Виж т.6.
+5. **Embedded Python 3.13** — план-ът сочеше `holzschu/python_ios`,
+   оказа се негоден при проверка (Python 2.7, без SPM manifest, ръчен
+   Xcode build). Вместо това `beeware/Python-Apple-support` (реален,
+   поддържан CPython 3.13.15) — vendor-нат `Python.xcframework` +
+   изрязан `Lib/` от `python/cpython` tag `v3.13.15` (test/idlelib/
+   tkinter/turtledemo/ensurepip изрязани). Нов `CPythonEmbed` C target
+   (отделен от Swift, защото `cpython/initconfig.h` е `exclude header`
+   в `Python.framework`'s module.modulemap). **Честно документирано
+   ограничение:** дали `dlopen()` работи за loose `.so` extension
+   modules (не цели frameworks) под iOS code-signing не можа да се
+   провери без реално устройство — виж пълните детайли в т.5.
+
+Всеки vendor-нат xcframework следва един и същ модел: изтегли реалния
+release asset, провери/сравни sha256 директно вместо да вярваш на
+upstream manifest-а, изрежи simulator/dSYM/build-only слоеве, комитни
+като локален `path:` binaryTarget. Repo-то порасна с ~90MB vendored
+binaries (SwiftGit3-related dependency resolved remotely, не в repo-то;
+локално vendor-нати: network_ios 11MB + Python.xcframework 7.7MB +
+python-stdlib 24MB).
+
+Паралелно: `Docs/ROADMAP.md` записва пълния разширен план, включително
+честно ограничение, че "буквално всички Termux пакети" не могат да
+влязат в native iOS sandbox (няма `fork()`/`exec()`, Apple забранява
+динамичен код), плюс отделен по-нисък приоритет "Track B" (браузър/WASM
+front-end — xterm.js + isomorphic-git + Pyodide) като fallback, ако
+native track-ът някога наистина опре в нещо неразрешимо оттук.
+
 ## Сесия 3 (2026-09-18, продължение) — първи реален CI build
 
 Добавен `.github/workflows/ios-build.yml` — build на `macos-15` GitHub
