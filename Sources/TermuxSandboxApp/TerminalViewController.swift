@@ -64,11 +64,11 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
                     terminalView.feed(text: "\u{8} \u{8}")
                 }
             default:
-                if let scalar = UnicodeScalar(byte) {
-                    let character = Character(scalar)
-                    lineBuffer.append(character)
-                    terminalView.feed(text: String(character))
-                }
+                // UnicodeScalar(UInt8) is non-failable — every byte 0...255
+                // maps to a valid Latin-1 scalar, so there's no Optional to unwrap.
+                let character = Character(UnicodeScalar(byte))
+                lineBuffer.append(character)
+                terminalView.feed(text: String(character))
             }
         }
     }
