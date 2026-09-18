@@ -54,7 +54,18 @@ Swift API за push или merge, само суровия `Clibgit2` C API го 
 commit в чисто нов repo (нужният `unsafeIndex()`/tree-writing API не е
 public извън SwiftGit2 модула). И двете — записани в кода, не догадки.
 
-**Резултат:** чака следващия CI run — виж GitHub Actions.
+**Резултат: ✅ зелен build** (run
+[35395454328](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35395454328),
+3м8с), след една допълнителна поправка: `python3_ios`/`lua_ios` също се
+оказаха със същия проблем като по-рано `network_ios` — единственият им
+git tag (`v1.0`/`1.0`) е отпреди `Package.swift` изобщо да съществува в
+тези repo-та, `swift package resolve` гърмеше с "`/Package.swift`
+doesn't exist". Сменени на `branch: "master"`, оттам всичко мина накуп.
+
+Всичките четири нови "библиотеки" (Python, Lua, `git`, `network_ios`) +
+всичко от предните сесии сега компилират заедно в едно приложение.
+Първи път проектът има реален, макар и неверифициран на устройство,
+build с почти пълния планиран команден набор.
 
 ## Сесия 3 (2026-09-18, продължение) — първи реален CI build
 
