@@ -27,8 +27,20 @@ Actions runner, за да хващаме компилационни грешки
    тръгнат при извикване (dlopen ще fail-не за тях), докато не се оправи
    ъпстрийм или не форкнем `network_ios` с поправен checksum.
 
-**Резултат:** чака следващия CI run след този push — виж GitHub Actions
-таба на репото за live статус.
+**Резултат: ✅ зелен build** (run
+[35392184724](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35392184724),
+2м15с) — след 6 итерации оправяне на CI/toolchain проблеми (SSH
+submodule, счупен `network_ios` checksum, Simulator-несъвместими
+`perl*` framework-и, грешна минимална iOS версия, SwiftTerm plugin
+validation) стигнахме и до един **реален бъг в кода**:
+`TerminalViewController.swift` правеше `if let` върху
+`UnicodeScalar(UInt8)`, който е non-failable инициализатор (всеки байт
+0...255 мапва към валиден Latin-1 scalar) — не компилираше. Оправено.
+
+Първи път проектът реално компилира от началото на writing-without-Mac
+експеримента. Следващата стъпка е т.2 от `NEXT_STEPS.md` (интерактивен
+PTY loop), плюс да решим `network_ios` (форк с поправен checksum или
+изчакване на ъпстрийм fix).
 
 ## Сесия 2 (2026-09-18, продължение same-day) — NEXT_STEPS т.1
 
