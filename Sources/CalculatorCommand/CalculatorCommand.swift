@@ -50,7 +50,8 @@ private func evaluateAndPrintBC(_ expression: String) {
     let trimmed = expression.trimmingCharacters(in: .whitespaces)
     guard !trimmed.isEmpty else { return }
     do {
-        let result = try BCParser(trimmed).parseExpression()
+        var parser = BCParser(trimmed)
+        let result = try parser.parseExpression()
         print(formatNumber(result))
     } catch {
         FileHandle.standardError.write("bc: \(error)\n".data(using: .utf8)!)

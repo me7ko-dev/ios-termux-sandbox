@@ -1,5 +1,6 @@
 import Foundation
 import ios_system
+import PythonCommand
 
 /// Runs one command line per call through `ios_system()` on a background
 /// thread, redirecting that thread's stdout/stderr into a byte callback so a
@@ -41,7 +42,21 @@ final class ShellEngine {
 
         initializeEnvironment()
         loadBundledCommandDictionary()
+        configurePython()
         CommandRegistry.registerAll()
+    }
+
+    /// `python`/`python3` (Docs/NEXT_STEPS.md item 5) need PYTHONHOME
+    /// pointed at the bundled stdlib before the first invocation. That
+    /// resource lives in this target's bundle (`Bundle.module` is
+    /// per-target), so it's resolved here and handed to PythonCommand
+    /// rather than PythonCommand looking it up itself.
+    private func configurePython() {
+        guard let stdlibURL = Bundle.module.url(forResource: "python-stdlib", withExtension: nil) else {
+            assertionFailure("python-stdlib resource missing from bundle")
+            return
+        }
+        PythonCommand.configure(pythonHome: stdlibURL.path)
     }
 
     /// `initializeEnvironment()` alone does not register `man`/`perl` or the

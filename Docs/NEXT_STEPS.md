@@ -173,17 +173,69 @@ framework-ът да бъде реално линкнат. Няма нужда о
 **Усилие:** средно. **Стойност:** UX паритет с Termux tabs, не е блокер за
 базова функционалност.
 
-## 5. Python (python_ios / embedded CPython)
-holzschu поддържа отделен `python_ios` repo (статично компилиран CPython за
-iOS) — това е "python via embedded interpreter", за което оригиналният
-бриф изрично пита. По-тежко от горните: изисква vendoring на прекомпилиран
-`Python.xcframework` (compile-from-source на CPython за iOS от нулата не е
-разумно за ръчна поддръжка) и внимание към `pip install` — работят само
-чисти Python пакети или такива с precompiled wheels за iOS; нищо с C
-extension компилация на място (пак заради sandbox забраната за компилатор
-extern процес).
-**Усилие:** високо. **Стойност:** висока — това е single biggest "истински
-Termux" очакване от потребителите.
+## 5. Python (embedded CPython 3.13) — [DONE в Сесия 4, чака build, реално ограничен обхват]
+
+Първоначалният план тук сочеше към `holzschu/python_ios` — при проверка
+се оказа negoден: patch-нат **Python 2.7.13** (EOL от години), без SPM
+manifest изобщо, изисква ръчен `getPackages.sh` + отделен Xcode project
+build (виж неговия README). Вместо това: **`beeware/Python-Apple-support`**
+tag `3.13-b15` (реален, поддържан, модерен **CPython 3.13.15**), който
+публикува готов `Python.xcframework` през GitHub Releases — същият модел
+prebuilt-xcframework, който вече ползваме за git (т.3.5) и network_ios (т.3.6).
+
+**Какво реално влезе:**
+- `Vendor/Python.xcframework` — само `ios-arm64` slice (Mac/simulator и
+  build-only `bin`/`platform-config`/`include` изрязани; 32MB → 7.7MB).
+- `Sources/TermuxSandboxApp/Resources/python-stdlib/lib/python3.13/` —
+  истинският CPython 3.13.15 `Lib/` от `python/cpython` tag `v3.13.15`,
+  изрязан от `test/` (36MB!), `idlelib/`, `tkinter/`, `turtledemo/`,
+  `ensurepip/` (безполезен без `subprocess`/`fork` за реален `pip`) →
+  51MB суров → 12MB чист Python код.
+- Същата директория `/lib-dynload/` — 53 компилирани extension modules
+  (`math`, `socket`, `ssl`→`_ssl`, `_sqlite3`, `zlib`, `_ctypes`,
+  `_hashlib`,...), изрязани от CPython-овите test-only extensions
+  (`_testcapi` и 14 негови роднини) → 24MB общо за целия stdlib resource.
+- Ново `CPythonEmbed` C target (`Sources/CPythonEmbed/cpython_embed.c`) —
+  чист C wrapper над `PyPreConfig`/`PyConfig`/`Py_InitializeFromConfig`/
+  `Py_RunMain`, **отделен** от Swift target-а нарочно: `cpython/initconfig.h`
+  (декларира `PyConfig`) е маркиран `exclude header` в `Python.framework`-ния
+  `module.modulemap` — невидим за Swift `import Python`, но обикновен C
+  `#include <Python/Python.h>` не минава през тази модулна граница изобщо,
+  защото `Python.h` го includе-va безусловно (проверено директно в header-а).
+- Ново `PythonCommand` Swift target — регистрира `python`/`python3`,
+  извиква `CPythonEmbed` през C interop.
+
+**Само ~28 модула са статично компилирани направо в `Python.framework/Python`**
+(`posix`, `io`, `_sre`, `itertools`, `time`,... — CPython-овия always-builtin
+списък, проверено директно с regex по символите в бинарката). Всичко
+останало е в `lib-dynload/*.so`, зареждано през същия dlopen+dlsym механизъм,
+на който вече разчита целият проект (`network_ios.framework`, SwiftGit3-ните
+Clibgit2 и т.н.) — но там става дума за цели **frameworks**, линкнати при
+build time; дали iOS code-signing позволява `dlopen()` и на **отделни `.so`
+файлове**, копирани просто като bundle resources (не декларирани като
+"Embedded Framework" в Xcode, което е нещото, което автоматично ги
+пре-подписва), е **единственото нещо в цялата тази сесия, което не можа да
+се провери без реално устройство**. Ако `import math` гърми runtime с
+codesigning-грешка, а не `ModuleNotFoundError` — това е причината, и
+поправката вероятно е да опаковаме всеки `lib-dynload` модул като собствен
+embedded/signed micro-framework (точно това прави `briefcase package ios`
+под капака — извън обхвата за ръчно сглобен SwiftPM проект в тази сесия).
+Чист Python stdlib код (`json`, `re`, повечето `os`, `pathlib`, `asyncio`)
+не зависи от това и би трябвало да работи независимо.
+
+**Повторно извикване на `python` в една и съща сесия:** `Py_RunMain()`
+финализира интерпретатора сам (виж коментара в `cpython_embed.c`) преди да
+върне контрол — по дизайн би трябвало да е safe да се вика отново за
+следваща `python`/`python3` команда в същия shell, без изричен допълнителен
+`Py_Finalize()`. Не е независимо потвърдено с реално второ извикване на
+устройство.
+
+**Усилие:** високо (потвърдено). **Стойност:** висока — но с честно
+документиран таван, не мълчаливо "готово".
+
+**Останало за Mac/CI:** build + `python3 -c "print(2+2)"` (чист Python,
+трябва да мине), после `python3 -c "import math; print(math.pi)"` —
+точно тук ще се разкрие дали lib-dynload dlopen-ва наистина.
 
 ## 6. `bc`/`dc` — [DONE в Сесия 4, чака build, съзнателно опростено]
 

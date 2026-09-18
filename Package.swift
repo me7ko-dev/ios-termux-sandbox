@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
         .library(name: "GitCommand", targets: ["GitCommand"]),
         .library(name: "CalculatorCommand", targets: ["CalculatorCommand"]),
+        .library(name: "PythonCommand", targets: ["PythonCommand"]),
         // Was missing — without this, an Xcode App target can't `import
         // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
         .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
@@ -93,6 +94,40 @@ let package = Package(
             path: "Vendor/network_ios.xcframework"
         ),
 
+        // Embedded CPython 3.13 (Docs/NEXT_STEPS.md item 5), vendored from
+        // beeware/Python-Apple-support 3.13-b15 rather than the unmaintained,
+        // Python-2.7-only holzschu/python_ios (no SPM manifest, requires a
+        // manual patch-then-Xcode-project build — see its own README).
+        // Trimmed the same way as network_ios above: dropped the simulator
+        // slice and the build-only bin/, platform-config/, and top-level
+        // include/ dirs the release tarball ships (all superseded by
+        // Python.framework's own Headers/ for our purposes), keeping just
+        // the ios-arm64 framework binary + headers. 32MB -> 7.7MB.
+        .binaryTarget(
+            name: "Python",
+            path: "Vendor/Python.xcframework"
+        ),
+
+        // Thin C shim around the CPython C API. Exists as its own target,
+        // separate from PythonCommand below, because several headers the
+        // embedding API needs (cpython/initconfig.h, for PyConfig/PyStatus/
+        // Py_InitializeFromConfig) are marked `exclude header` in
+        // Python.framework's own module.modulemap — invisible to a Swift
+        // `import Python`, but a plain C #include doesn't go through that
+        // module boundary at all. See cpython_embed.c for the fuller story.
+        .target(
+            name: "CPythonEmbed",
+            dependencies: ["Python"]
+        ),
+
+        .target(
+            name: "PythonCommand",
+            dependencies: [
+                "CPythonEmbed",
+                .product(name: "ios_system", package: "ios_system")
+            ]
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -109,7 +144,8 @@ let package = Package(
                 "SysInfoCommand",
                 "SSHClientCommand",
                 "GitCommand",
-                "CalculatorCommand"
+                "CalculatorCommand",
+                "PythonCommand"
             ],
             resources: [
                 // Command→framework/function map, filtered from a-Shell's own
@@ -118,7 +154,15 @@ let package = Package(
                 // item 1. Loaded explicitly via addCommandList() in
                 // ShellEngine.start(); not something ios_system registers on
                 // its own from a plain `initializeEnvironment()` call.
-                .copy("Resources/commandDictionary.plist")
+                .copy("Resources/commandDictionary.plist"),
+                // Trimmed CPython 3.13.15 stdlib (Lib/test, idlelib,
+                // tkinter, turtledemo, ensurepip stripped) plus the compiled
+                // extension modules under lib/python3.13/lib-dynload/ — see
+                // Docs/NEXT_STEPS.md item 5. `.copy` (not `.process`)
+                // because this needs to land in the bundle as a literal
+                // directory tree, matching the layout CPython's own path
+                // calculation expects under PYTHONHOME.
+                .copy("Resources/python-stdlib")
             ]
         )
     ]
