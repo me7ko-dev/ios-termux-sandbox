@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
         .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
+        .library(name: "GitCommand", targets: ["GitCommand"]),
         // Was missing — without this, an Xcode App target can't `import
         // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
         .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
@@ -27,6 +28,16 @@ let package = Package(
         // ssh_cmd (libssh2) for the "sshc" command below because it needs no C
         // cross-compilation step and officially targets iOS 17+ — see Docs/NEXT_STEPS.md.
         .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.7.0"),
+
+        // `git` command support. Upstream SwiftGit2/SwiftGit2 has no SPM
+        // manifest at all (Carthage + git submodules only) — this fork
+        // vendors prebuilt Clibgit2/Clibssh2/Clibcrypto/Clibssl xcframeworks
+        // (real binaries committed to the repo, not Git LFS or a remote
+        // checksum'd release asset, so it can't hit the same checksum-drift
+        // failure we saw with network_ios below) and includes an ios-arm64
+        // slice for real-device builds, not just the simulator. See
+        // Docs/ROADMAP.md Track A.
+        .package(url: "https://github.com/joehinkle11/SwiftGit3.git", exact: "1.2.2"),
 
         // dig/host/ifconfig/nc/nslookup/ping/rlogin/telnet/whois/wol — not part
         // of ios_system's own Package.swift targets, needs its own dependency.
@@ -58,6 +69,14 @@ let package = Package(
             ]
         ),
 
+        .target(
+            name: "GitCommand",
+            dependencies: [
+                .product(name: "SwiftGit2", package: "SwiftGit3"),
+                .product(name: "ios_system", package: "ios_system")
+            ]
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -72,7 +91,8 @@ let package = Package(
                 // network_ios temporarily disabled — see dependencies list above.
                 "SwiftTerm",
                 "SysInfoCommand",
-                "SSHClientCommand"
+                "SSHClientCommand",
+                "GitCommand"
             ],
             resources: [
                 // Command→framework/function map, filtered from a-Shell's own

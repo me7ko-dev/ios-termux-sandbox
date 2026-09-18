@@ -117,6 +117,10 @@ private struct SSHArguments {
     }
 }
 
+private struct KeyAuthError: Error, CustomStringConvertible {
+    let description: String
+}
+
 /// Builds a Citadel authentication method from a `-i keyfile [-kp passphrase]`
 /// pair. Detects RSA vs. ed25519 from the key's own header rather than
 /// trusting a file extension — `SSHKeyDetection` parses the OpenSSH
@@ -125,10 +129,10 @@ private func keyBasedAuthenticationMethod(
     username: String,
     keyFile: String,
     passphrase: String?
-) -> Result<SSHAuthenticationMethod, String> {
+) -> Result<SSHAuthenticationMethod, KeyAuthError> {
     let expandedPath = (keyFile as NSString).expandingTildeInPath
     guard let keyString = try? String(contentsOfFile: expandedPath, encoding: .utf8) else {
-        return .failure("sshc: couldn't read key file at \(keyFile)")
+        return .failure(KeyAuthError(description: "sshc: couldn't read key file at \(keyFile)"))
     }
 
     let decryptionKey = passphrase.flatMap { $0.data(using: .utf8) }
@@ -143,14 +147,14 @@ private func keyBasedAuthenticationMethod(
             let privateKey = try Curve25519.Signing.PrivateKey(sshEd25519: keyString, decryptionKey: decryptionKey)
             return .success(.ed25519(username: username, privateKey: privateKey))
         default:
-            return .failure("sshc: unsupported key type \(keyType) — only RSA and ed25519 are wired up so far")
+            return .failure(KeyAuthError(description: "sshc: unsupported key type \(keyType) — only RSA and ed25519 are wired up so far"))
         }
     } catch SSHKeyDetectionError.passphraseRequired, SSHKeyDetectionError.encryptedPrivateKey {
-        return .failure("sshc: key at \(keyFile) is encrypted — pass -kp <passphrase>")
+        return .failure(KeyAuthError(description: "sshc: key at \(keyFile) is encrypted — pass -kp <passphrase>"))
     } catch SSHKeyDetectionError.incorrectPassphrase {
-        return .failure("sshc: incorrect passphrase for \(keyFile)")
+        return .failure(KeyAuthError(description: "sshc: incorrect passphrase for \(keyFile)"))
     } catch {
-        return .failure("sshc: couldn't parse key at \(keyFile): \(error)")
+        return .failure(KeyAuthError(description: "sshc: couldn't parse key at \(keyFile): \(error)"))
     }
 }
 
@@ -160,8 +164,8 @@ private func runSSHSession(_ args: SSHArguments) async -> Int32 {
         switch keyBasedAuthenticationMethod(username: args.username, keyFile: keyFile, passphrase: args.keyPassphrase) {
         case .success(let method):
             authenticationMethod = method
-        case .failure(let message):
-            FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
+        case .failure(let keyError):
+            FileHandle.standardError.write((keyError.description + "\n").data(using: .utf8)!)
             return 1
         }
     } else if let password = args.password {

@@ -102,6 +102,33 @@ switch-а). Няма и UI за генериране/импорт на нов к
 инсталиран, за да потвърдим, че самият handshake (не само парсването на
 файла) минава.
 
+## 3.5. `git` команда (Docs/ROADMAP.md Track A) — [DONE в Сесия 4, чака build]
+
+Нов `GitCommand` target, регистриран по същия модел (`replaceCommand`).
+Upstream `SwiftGit2/SwiftGit2` няма SPM манифест изобщо (само Carthage +
+git submodules) — използвахме `joehinkle11/SwiftGit3` fork вместо това:
+vendor-нати prebuilt `Clibgit2`/`Clibssh2`/`Clibcrypto`/`Clibssl`
+xcframeworks, реални бинарки закомитнати в repo-то (не Git LFS, не remote
+checksum'd release asset) — не може да хване същия checksum-drift проблем,
+на който се натъкнахме с `network_ios`. Включва `ios-arm64` slice за
+реален device build, не само simulator.
+
+Покрити subcommands: `clone` (HTTPS с `-u`/`-pw` или SSH ключ с
+`-i`/`-kp`, същите флагове като `sshc`), `status`, `add`, `commit`
+(`-m`/`-n`/`-e`), `log` (`-n` брой, ръчно walk-ване на `parents.first`
+вместо upstream-ния `CommitIterator`, чийто init е `internal`, недостъпен
+извън SwiftGit2 модула), `push` (само HTTPS `-u`/`-pw` — upstream-ният
+`push()` е fire-and-forget, връща `Void`, не `Result`, и хардкодва
+`Credentials.plaintext` вътрешно, така че SSH-ключ push не е окачен тук).
+
+**Съзнателно НЕ покрито:** `pull` (= fetch + merge, upstream няма готов
+merge helper, а fetch-only без merge е подвеждащо да се казва "pull");
+`Repository.at()` не search-ва нагоре през родителски директории като
+истинския `git status` от subdirectory — очаква точния repo path.
+
+**Останало за Mac/CI:** build + реален тест: clone на публично repo,
+edit + add + commit + push към тестов remote с PAT.
+
 ## 4. Multi-tab / множество сесии
 `ios_system` поддържа паралелни сесии през `ios_switchSession(sessionid)` —
 всяка с отделен working directory и environment. Нарочно не го включих в
