@@ -8,7 +8,10 @@ let package = Package(
     ],
     products: [
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
-        .library(name: "SSHClientCommand", targets: ["SSHClientCommand"])
+        .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
+        // Was missing — without this, an Xcode App target can't `import
+        // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
+        .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
     ],
     dependencies: [
         // Core Unix command layer — compiles ls/cat/grep/tar/curl/ssh/python-less

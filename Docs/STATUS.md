@@ -114,15 +114,44 @@ iOS версия, sandbox home directory, свободно място на ди�
 
 ## Как да отвориш на Mac
 
-1. `git init` в тази папка (или добави я в съществуващ repo) и commit.
-2. `swift build` от терминала — първо ниво проверка на командния слой без
-   Xcode UI.
-3. За реално iOS приложение: Xcode → File → New → Project → iOS App →
-   добави `ios-termux-sandbox` като local Swift Package dependency → във
-   вашия `@main App` структура сложи `TermuxSandboxRootView()`.
-4. Очаквай компилационни грешки при първия опит — нормално е за код, писан
+**Поправка:** по-рано тук пишеше "пусни `swift build` от терминала като
+първа проверка" — това вероятно **няма да работи** и е подвеждащо. Плейн
+`swift build` строи за host платформата (macOS), а `TerminalViewController.swift`
+и `App.swift` правят безусловен `import UIKit`, което го няма на чист macOS
+build (само на iOS/Catalyst) — плюс ios_system/network_ios/SwiftTerm
+xcframeworks вероятно нямат macOS slice изобщо (правени са специално за
+iOS терминални апове като a-Shell, който няма Mac версия). Не мога да го
+тествам оттук, но не бих разчитал на `swift build` без изричен iOS SDK/target
+override — по-простият и сигурен път е директно през Xcode:
+
+1. `git clone https://github.com/me7ko-dev/ios-termux-sandbox.git`
+2. Xcode → File → New → Project → iOS → App (SwiftUI, Swift) → кръсти го
+   напр. `TermuxSandboxHost`.
+3. В новия проект: File → Add Package Dependencies → Add Local... → посочи
+   клонираната `ios-termux-sandbox` папка.
+4. Линкни и трите library продукта към App таргета: `TermuxSandboxApp`,
+   `SysInfoCommand`, `SSHClientCommand` (последните два технически се теглят
+   транзитивно през `TermuxSandboxApp`, но добави ги изрично ако Xcode не
+   ги añade сам).
+5. В генерирания `@main App` файл замени тялото с:
+   ```swift
+   import SwiftUI
+   import TermuxSandboxApp
+
+   @main
+   struct TermuxSandboxHostApp: App {
+       var body: some Scene {
+           WindowGroup { TermuxSandboxRootView() }
+       }
+   }
+   ```
+6. Избери iOS Simulator destination (напр. iPhone 15) → Cmd+R.
+7. Очаквай компилационни грешки при първия опит — нормално е за код, писан
    без компилатор под ръка. Най-вероятните места: SwiftTerm delegate
-   сигнатури, ако версията се е обновила между тази сесия и деня на билда.
+   сигнатури, ако версията се е обновила между тази сесия и деня на билда,
+   plus каквото Xcode ти покаже за `Bundle.module`/resource bundling.
+8. Като заработи, пусни `commands` в терминала — това е verification
+   инструментът за NEXT_STEPS т.1 (виж там).
 
 ## Известни ограничения (не бъгове — записани съзнателно)
 
