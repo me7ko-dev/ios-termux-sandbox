@@ -44,10 +44,16 @@ let package = Package(
         // Python 3.7.13 interpreter, precompiled for iOS — see
         // Docs/STATUS.md for how PYTHONHOME is wired up (bundled stdlib
         // resource, since these binary targets ship no .py files at all).
-        .package(url: "https://github.com/holzschu/python3_ios.git", from: "1.0.0"),
+        //
+        // branch, not a version tag: the only tag this repo has (v1.0)
+        // predates Package.swift being added at all — `swift package
+        // resolve` fails outright trying to read it ("/Package.swift
+        // doesn't exist"). Only `master` has SPM support.
+        .package(url: "https://github.com/holzschu/python3_ios.git", branch: "master"),
 
-        // Lua interpreter, precompiled for iOS.
-        .package(url: "https://github.com/holzschu/lua_ios.git", from: "1.0.0"),
+        // Lua interpreter, precompiled for iOS. Same story as python3_ios
+        // above: its only tag (1.0) has no Package.swift, master does.
+        .package(url: "https://github.com/holzschu/lua_ios.git", branch: "master"),
 
         // Swift bindings to libgit2, for the "git" command below. Tracks the
         // `spm` branch, not a version tag: this fork's SPM support only
