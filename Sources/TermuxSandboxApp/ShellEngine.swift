@@ -8,10 +8,21 @@ import PythonCommand
 /// command is a C function linked into this same process, matching the
 /// App Store sandbox constraint from the brief.
 ///
-/// Single global ios_system session for now — one TerminalViewController,
-/// one shell. Multiple concurrent terminals would need `ios_switchSession`
-/// with a stable per-tab token (see Docs/NEXT_STEPS.md item 4); not wired up
-/// here since there's only ever one caller.
+/// One `ShellEngine` per tab (Docs/NEXT_STEPS.md item 4 / Docs/ROADMAP.md
+/// Track A item 9). Isolation between tabs is `ios_switchSession`, keyed by
+/// each engine's own identity (`Unmanaged.passUnretained(self).toOpaque()`)
+/// rather than a separately-tracked UUID→pointer map — the engine instance
+/// already lives exactly as long as its tab, so its own address is already
+/// a stable, unique-for-its-lifetime token, and `deinit` closing the
+/// session closes that narrow window before ARC could hand the same
+/// address to an unrelated object. `ios_system` never dereferences the
+/// token (confirmed against its header — it's used purely as an opaque
+/// dictionary key), so this is safe even though the pointer stops pointing
+/// at a live `ShellEngine` the instant `deinit` runs.
+///
+/// Command registration (`replaceCommand`/`addCommandList`) is global
+/// dispatch-table state, not per-session — `bootstrapGlobalEnvironmentOnce`
+/// runs it exactly once no matter how many tabs get created.
 final class ShellEngine {
 
     /// Called on the main thread with raw output bytes as they arrive.
@@ -27,18 +38,38 @@ final class ShellEngine {
     private var didInitialize = false
     private var stdinPipe: Pipe?
 
+    /// This tab's `ios_switchSession` key. `lazy` so it's computed once
+    /// `self` is a fully-formed instance rather than during `init`.
+    private lazy var sessionToken: UnsafeRawPointer = Unmanaged.passUnretained(self).toOpaque()
+
     init(workingDirectory: URL) {
         self.workingDirectory = workingDirectory
+    }
+
+    deinit {
+        ios_closeSession(sessionToken)
     }
 
     func start() {
         guard !didInitialize else { return }
         didInitialize = true
 
+        ShellEngine.bootstrapGlobalEnvironmentOnce()
+
+        ios_switchSession(sessionToken)
         ios_setDirectoryURL(workingDirectory)
         // Confines all path resolution inside ios_system to the app sandbox —
         // required so `cd /`, `ls /private`, etc. don't leak outside our container.
         ios_setMiniRoot(workingDirectory.path)
+    }
+
+    // MARK: - One-time, process-wide setup
+
+    private static var didBootstrapGlobalEnvironment = false
+
+    private static func bootstrapGlobalEnvironmentOnce() {
+        guard !didBootstrapGlobalEnvironment else { return }
+        didBootstrapGlobalEnvironment = true
 
         initializeEnvironment()
         loadBundledCommandDictionary()
@@ -47,11 +78,8 @@ final class ShellEngine {
     }
 
     /// `python`/`python3` (Docs/NEXT_STEPS.md item 5) need PYTHONHOME
-    /// pointed at the bundled stdlib before the first invocation. That
-    /// resource lives in this target's bundle (`Bundle.module` is
-    /// per-target), so it's resolved here and handed to PythonCommand
-    /// rather than PythonCommand looking it up itself.
-    private func configurePython() {
+    /// pointed at the bundled stdlib before the first invocation.
+    private static func configurePython() {
         guard let stdlibURL = Bundle.module.url(forResource: "python-stdlib", withExtension: nil) else {
             assertionFailure("python-stdlib resource missing from bundle")
             return
@@ -66,7 +94,7 @@ final class ShellEngine {
     /// `addCommandList()` at startup. We mirror that: ship the same mapping,
     /// filtered to only the frameworks this project actually links (see
     /// Docs/NEXT_STEPS.md item 1), and load it the same way.
-    private func loadBundledCommandDictionary() {
+    private static func loadBundledCommandDictionary() {
         guard let path = Bundle.module.path(forResource: "commandDictionary", ofType: "plist") else {
             assertionFailure("commandDictionary.plist missing from bundle resources")
             return
@@ -96,7 +124,7 @@ final class ShellEngine {
             }
         }
 
-        Thread.detachNewThread { [weak self, workingDirectory] in
+        Thread.detachNewThread { [weak self, workingDirectory, sessionToken] in
             let writeFD = outputPipe.fileHandleForWriting.fileDescriptor
             let readFD = inputPipe.fileHandleForReading.fileDescriptor
             guard let outStream = fdopen(writeFD, "w"), let inStream = fdopen(readFD, "r") else {
@@ -104,6 +132,14 @@ final class ShellEngine {
                 return
             }
 
+            // ios_system's session state (`thread_stdin`/`thread_stdout`/
+            // current directory/environment) hangs off __thread storage —
+            // since every command here runs on a freshly detached thread,
+            // that storage starts blank each time. Switching to this tab's
+            // session token is what makes the *tab's* persistent state
+            // (not some other tab's, not a blank default) the one that
+            // gets bound to this thread before the command runs.
+            ios_switchSession(sessionToken)
             ios_setDirectoryURL(workingDirectory)
             ios_setStreams(inStream, outStream, outStream)
 

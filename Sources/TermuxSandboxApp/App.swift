@@ -1,17 +1,17 @@
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper around the UIKit `TerminalViewController`. SwiftTerm is
-/// UIKit-only, so this is a thin `UIViewControllerRepresentable` shim rather
-/// than a native SwiftUI screen.
+/// SwiftUI wrapper around the UIKit `TabbedTerminalViewController` (multi-tab,
+/// Docs/NEXT_STEPS.md item 4). SwiftTerm is UIKit-only, so this is a thin
+/// `UIViewControllerRepresentable` shim rather than a native SwiftUI screen.
 public struct TerminalScreen: UIViewControllerRepresentable {
     public init() {}
 
-    public func makeUIViewController(context: Context) -> TerminalViewController {
-        TerminalViewController()
+    public func makeUIViewController(context: Context) -> TabbedTerminalViewController {
+        TabbedTerminalViewController()
     }
 
-    public func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {}
+    public func updateUIViewController(_ uiViewController: TabbedTerminalViewController, context: Context) {}
 }
 
 /// NOTE: not wired up as `@main` — this package builds as a library

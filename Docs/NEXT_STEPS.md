@@ -163,15 +163,38 @@ framework-ът да бъде реално линкнат. Няма нужда о
 устройство, за да потвърдим, че dlsym наистина хваща символите (виж
 предупреждението в т.1 за тихи failures на ниво отделна команда).
 
-## 4. Multi-tab / множество сесии
-`ios_system` поддържа паралелни сесии през `ios_switchSession(sessionid)` —
-всяка с отделен working directory и environment. Нарочно не го включих в
-Сесия 1 (виж STATUS.md), защото token-ът трябва да е стабилен opaque
-идентификатор, не гадан bridge на `Thread`. Правилният подход: генерирай
-`UUID` per tab, пази map tab→`UnsafeRawPointer`, подавай го консистентно на
-всяко `ios_setDirectoryURL`/`ios_system` повикване за този таб.
-**Усилие:** средно. **Стойност:** UX паритет с Termux tabs, не е блокер за
-базова функционалност.
+## 4. Multi-tab / множество сесии — [DONE в Сесия 4, чака build]
+
+`ios_switchSession(sessionid)` изисква стабилен opaque token per таб — вместо
+отделно поддържана `UUID`→`UnsafeRawPointer` карта (планът по-долу от по-рано),
+крайното решение е по-просто: всеки `ShellEngine` вече Е тази стабилна
+идентичност за целия си живот, така че `Unmanaged.passUnretained(self)
+.toOpaque()` директно е token-ът — `ios_system` никога не dereference-ва
+token-а (проверено в `ios_system.h`, ползва се чисто като opaque dictionary
+key), затова е безопасно дори token-ът технически да сочи към вече
+deallocate-нат обект, стига `deinit` да е викнал `ios_closeSession` преди
+ARC да преизползва адреса за нов обект — точно това прави новият
+`ShellEngine.deinit`.
+
+Разделих `ShellEngine.start()` на глобална еднократна инициализация
+(`bootstrapGlobalEnvironmentOnce()` — `replaceCommand`/`addCommandList` са
+global dispatch-table state, не per-сесия, викат се веднъж независимо
+колко таба съществуват) срещу per-таб session setup (`ios_switchSession` +
+`ios_setDirectoryURL`/`ios_setMiniRoot` за конкретния таб). Всяко `run()`
+вика `ios_switchSession(sessionToken)` в началото на detached thread-а си —
+задължително, защото `thread_stdin`/`thread_stdout`/current-directory
+състоянието на `ios_system` е `__thread` (thread-local), а всяка команда
+тук стартира на чисто нов detached thread; без превключване на сесията в
+началото, всеки таб би виждал blank default state вместо своето.
+
+Ново `TabbedTerminalViewController.swift` — UIKit containment (`addChild`/
+`didMove`) на множество `TerminalViewController` instances, tab bar отгоре
+с `+`/`✕` бутони. Затваряне на последния таб отваря нов, вместо да остави
+празен екран.
+
+**Останало за Mac/CI:** build + реален тест — отвори 2 таба, `cd` в единия,
+провери, че другият не е засегнат; затвори таб, провери, че приложението
+не крашва и активният преминава на съседния.
 
 ## 5. Python (embedded CPython 3.13) — [DONE в Сесия 4, чака build, реално ограничен обхват]
 

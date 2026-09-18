@@ -46,6 +46,17 @@ binaries (SwiftGit3-related dependency resolved remotely, не в repo-то;
 локално vendor-нати: network_ios 11MB + Python.xcframework 7.7MB +
 python-stdlib 24MB).
 
+**Резултат: ✅ и петте commit-а минаха CI** (run
+[#11](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35395211070)
+SSH ключове+git, run
+[#14](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35395598557)
+network_ios, run
+[#17](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35397272759)
+Python — ~4 минути build заради по-голямото repo и нова dependency
+resolution). bc/dc-ят first опита (run #16) не компилира заради
+mutating-метод върху temporary struct — оправено в следващия push
+заедно с Python-а.
+
 Паралелно: `Docs/ROADMAP.md` записва пълния разширен план, включително
 честно ограничение, че "буквално всички Termux пакети" не могат да
 влязат в native iOS sandbox (няма `fork()`/`exec()`, Apple забранява
