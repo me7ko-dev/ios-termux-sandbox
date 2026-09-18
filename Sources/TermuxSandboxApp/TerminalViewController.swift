@@ -45,6 +45,24 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
     // MARK: - TerminalViewDelegate
 
     public func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        // While a command is running, every keystroke goes straight to its
+        // stdin instead of our own line buffer — that's what lets python3's
+        // REPL, sshc in interactive mode, etc. read anything at all (their
+        // reads used to hit the sandboxed app's real, never-written-to
+        // stdin and just hang). See Docs/NEXT_STEPS.md item 2.
+        //
+        // There's still no real pty, so this is best-effort: we echo locally
+        // ourselves (the command has no terminal to echo through) and
+        // translate Enter to '\n' for line-buffered readers like fgets, but
+        // a program doing its own raw-mode line editing (vim, a real
+        // readline prompt) won't see backspace as anything but a literal
+        // 0x7F byte — known limitation, not something fixable without a
+        // real pty layer.
+        if shellEngine.isRunning {
+            forwardLiveInput(data)
+            return
+        }
+
         for byte in data {
             switch byte {
             case 0x0D: // Enter
@@ -69,6 +87,23 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
                 let character = Character(UnicodeScalar(byte))
                 lineBuffer.append(character)
                 terminalView.feed(text: String(character))
+            }
+        }
+    }
+
+    private func forwardLiveInput(_ data: ArraySlice<UInt8>) {
+        for byte in data {
+            switch byte {
+            case 0x0D: // Enter -> '\n' for fgets/readline-style readers
+                terminalView.feed(text: "\r\n")
+                shellEngine.sendInput(Data([0x0A]))
+            case 0x7F: // Backspace — local echo only, see note above
+                terminalView.feed(text: "\u{8} \u{8}")
+                shellEngine.sendInput(Data([byte]))
+            default:
+                let character = Character(UnicodeScalar(byte))
+                terminalView.feed(text: String(character))
+                shellEngine.sendInput(Data([byte]))
             }
         }
     }

@@ -16,8 +16,15 @@ final class ShellEngine {
     /// Called on the main thread with raw output bytes as they arrive.
     var onOutput: ((Data) -> Void)?
 
+    /// True while a command dispatched through `run` is still executing —
+    /// lets the terminal controller decide whether a keystroke should be
+    /// forwarded live to that command's stdin (see `sendInput`) or buffered
+    /// as a new command line (see Docs/NEXT_STEPS.md item 2).
+    private(set) var isRunning = false
+
     private let workingDirectory: URL
     private var didInitialize = false
+    private var stdinPipe: Pipe?
 
     init(workingDirectory: URL) {
         self.workingDirectory = workingDirectory
@@ -55,10 +62,16 @@ final class ShellEngine {
     }
 
     /// Runs `commandLine` (e.g. "ls -la", "sysinfo", "sshc user@host ls") and
-    /// invokes `completion` on the main thread once it returns.
+    /// invokes `completion` on the main thread once it returns. While this is
+    /// in flight, `isRunning` is true and bytes handed to `sendInput` go
+    /// straight to the command's stdin — that's what lets `python3`'s REPL,
+    /// `sshc` in interactive mode, etc. actually read something.
     func run(_ commandLine: String, completion: @escaping (Int32) -> Void) {
         let outputPipe = Pipe()
         let readSource = outputPipe.fileHandleForReading
+        let inputPipe = Pipe()
+        stdinPipe = inputPipe
+        isRunning = true
 
         readSource.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
@@ -68,28 +81,38 @@ final class ShellEngine {
             }
         }
 
-        Thread.detachNewThread { [workingDirectory] in
+        Thread.detachNewThread { [weak self, workingDirectory] in
             let writeFD = outputPipe.fileHandleForWriting.fileDescriptor
-            guard let outStream = fdopen(writeFD, "w") else {
+            let readFD = inputPipe.fileHandleForReading.fileDescriptor
+            guard let outStream = fdopen(writeFD, "w"), let inStream = fdopen(readFD, "r") else {
                 DispatchQueue.main.async { completion(-1) }
                 return
             }
 
             ios_setDirectoryURL(workingDirectory)
-            // stdin here is the process's real stdin, which nothing writes to in
-            // a sandboxed app — fine for sysinfo/sshc (neither reads stdin), but
-            // any future interactive command (python REPL, vim) needs an input
-            // pipe fed by terminal keystrokes, mirroring the output pipe below.
-            // See Docs/NEXT_STEPS.md item 2.
-            ios_setStreams(stdin, outStream, outStream)
+            ios_setStreams(inStream, outStream, outStream)
 
             let status = ios_system(commandLine)
 
             fflush(outStream)
             fclose(outStream)
+            fclose(inStream)
             readSource.readabilityHandler = nil
 
-            DispatchQueue.main.async { completion(status) }
+            DispatchQueue.main.async {
+                self?.isRunning = false
+                self?.stdinPipe = nil
+                completion(status)
+            }
         }
+    }
+
+    /// Forwards raw keystroke bytes to the currently running command's
+    /// stdin. No-op when nothing is running (there's no reader on the other
+    /// end) — the caller is expected to check `isRunning` first and treat
+    /// input as a new command line instead. See Docs/NEXT_STEPS.md item 2.
+    func sendInput(_ data: Data) {
+        guard let stdinPipe else { return }
+        stdinPipe.fileHandleForWriting.write(data)
     }
 }
