@@ -64,6 +64,28 @@ mutating-метод върху temporary struct — оправено в след
 front-end — xterm.js + isomorphic-git + Pyodide) като fallback, ако
 native track-ът някога наистина опре в нещо неразрешимо оттук.
 
+### Продължение същата сесия — multi-tab (NEXT_STEPS т.4)
+
+Шести feature push: `TabbedTerminalViewController` — множество независими
+табове, всеки със собствен `ShellEngine`/`ios_switchSession` token
+(`Unmanaged.passUnretained(self).toOpaque()`, вместо отделно поддържана
+UUID→pointer карта). Първият опит не компилира
+(`UnsafeMutableRawPointer` срещу декларирания `UnsafeRawPointer` тип на
+token-а — `toOpaque()` връща mutable вариант), оправено веднага.
+
+**Резултат: ✅ CI зелен** (run
+[#20](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35398558388)).
+
+**Обобщение на цялата Сесия 4:** 6 нови/поправени функционалности,
+всяка потвърдена с отделен зелен CI build: SSH ключове, `git`,
+`network_ios`, `bc`/`dc`, embedded Python 3.13, multi-tab. Всичките
+компилират; нито едно не е тествано на реално устройство (няма Mac в
+тази сесия) — виж честно документираните "Останало за Mac/CI" бележки
+във всяка точка на `NEXT_STEPS.md` за какво точно остава да се потвърди
+при първия реален build. Следваща логична стъпка при продължение:
+т.8 (SSH key management UI) или т.10 (разширяване на пълния
+commandDictionary) от `Docs/ROADMAP.md`.
+
 ## Сесия 3 (2026-09-18, продължение) — първи реален CI build
 
 Добавен `.github/workflows/ios-build.yml` — build на `macos-15` GitHub
