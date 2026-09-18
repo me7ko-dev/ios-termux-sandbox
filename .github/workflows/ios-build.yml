@@ -30,19 +30,19 @@ jobs:
         run: |
           xcodebuild build \
             -scheme SysInfoCommand \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build SSHClientCommand
         run: |
           xcodebuild build \
             -scheme SSHClientCommand \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build TermuxSandboxApp
         run: |
           xcodebuild build \
             -scheme TermuxSandboxApp \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO
