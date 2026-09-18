@@ -1,5 +1,6 @@
 import Foundation
 import Citadel
+import Crypto
 import NIOCore
 import ios_system
 
@@ -9,7 +10,13 @@ import ios_system
 /// Docs/NEXT_STEPS.md.
 ///
 /// Usage:
-///   sshc user@host [-p port] [-pw password] [command...]
+///   sshc user@host [-p port] [-pw password] [-i keyfile] [-kp passphrase] [command...]
+///
+/// `-i` takes precedence over `-pw` when both are given — key auth is what
+/// real Termux users reach for first (Docs/NEXT_STEPS.md item 3). `-kp` only
+/// matters for an encrypted key file; Citadel's `decryptionKey` parameter is,
+/// despite the name, the raw passphrase bytes — it runs bcrypt_pbkdf itself
+/// against the key's embedded salt (see OpenSSHKey.swift upstream).
 ///
 /// With a trailing command it runs non-interactively and exits (like
 /// `ssh host cmd`); without one it currently prints a notice instead of
@@ -57,6 +64,8 @@ private struct SSHArguments {
     let host: String
     let port: Int
     let password: String?
+    let keyFile: String?
+    let keyPassphrase: String?
     let remoteCommand: String?
 
     init?(_ args: [String]) {
@@ -71,6 +80,8 @@ private struct SSHArguments {
 
         var port = 22
         var password: String?
+        var keyFile: String?
+        var keyPassphrase: String?
         var commandParts: [String] = []
 
         var index = 0
@@ -84,6 +95,14 @@ private struct SSHArguments {
                 index += 1
                 guard index < remaining.count else { return nil }
                 password = remaining[index]
+            case "-i":
+                index += 1
+                guard index < remaining.count else { return nil }
+                keyFile = remaining[index]
+            case "-kp":
+                index += 1
+                guard index < remaining.count else { return nil }
+                keyPassphrase = remaining[index]
             default:
                 commandParts.append(remaining[index])
             }
@@ -92,14 +111,64 @@ private struct SSHArguments {
 
         self.port = port
         self.password = password
+        self.keyFile = keyFile
+        self.keyPassphrase = keyPassphrase
         self.remoteCommand = commandParts.isEmpty ? nil : commandParts.joined(separator: " ")
     }
 }
 
+/// Builds a Citadel authentication method from a `-i keyfile [-kp passphrase]`
+/// pair. Detects RSA vs. ed25519 from the key's own header rather than
+/// trusting a file extension — `SSHKeyDetection` parses the OpenSSH
+/// private-key structure directly.
+private func keyBasedAuthenticationMethod(
+    username: String,
+    keyFile: String,
+    passphrase: String?
+) -> Result<SSHAuthenticationMethod, String> {
+    let expandedPath = (keyFile as NSString).expandingTildeInPath
+    guard let keyString = try? String(contentsOfFile: expandedPath, encoding: .utf8) else {
+        return .failure("sshc: couldn't read key file at \(keyFile)")
+    }
+
+    let decryptionKey = passphrase.flatMap { $0.data(using: .utf8) }
+
+    do {
+        let keyType = try SSHKeyDetection.detectPrivateKeyType(from: keyString)
+        switch keyType {
+        case .rsa:
+            let privateKey = try Insecure.RSA.PrivateKey(sshRsa: keyString, decryptionKey: decryptionKey)
+            return .success(.rsa(username: username, privateKey: privateKey))
+        case .ed25519:
+            let privateKey = try Curve25519.Signing.PrivateKey(sshEd25519: keyString, decryptionKey: decryptionKey)
+            return .success(.ed25519(username: username, privateKey: privateKey))
+        default:
+            return .failure("sshc: unsupported key type \(keyType) — only RSA and ed25519 are wired up so far")
+        }
+    } catch SSHKeyDetectionError.passphraseRequired, SSHKeyDetectionError.encryptedPrivateKey {
+        return .failure("sshc: key at \(keyFile) is encrypted — pass -kp <passphrase>")
+    } catch SSHKeyDetectionError.incorrectPassphrase {
+        return .failure("sshc: incorrect passphrase for \(keyFile)")
+    } catch {
+        return .failure("sshc: couldn't parse key at \(keyFile): \(error)")
+    }
+}
+
 private func runSSHSession(_ args: SSHArguments) async -> Int32 {
-    guard let password = args.password else {
+    let authenticationMethod: SSHAuthenticationMethod
+    if let keyFile = args.keyFile {
+        switch keyBasedAuthenticationMethod(username: args.username, keyFile: keyFile, passphrase: args.keyPassphrase) {
+        case .success(let method):
+            authenticationMethod = method
+        case .failure(let message):
+            FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
+            return 1
+        }
+    } else if let password = args.password {
+        authenticationMethod = .passwordBased(username: args.username, password: password)
+    } else {
         FileHandle.standardError.write(
-            "sshc: password auth only for now — pass -pw <password> (key-based auth is Docs/NEXT_STEPS.md item 3)\n"
+            "sshc: no credentials — pass -pw <password> or -i <keyfile> [-kp <passphrase>]\n"
                 .data(using: .utf8)!
         )
         return 1
@@ -109,7 +178,7 @@ private func runSSHSession(_ args: SSHArguments) async -> Int32 {
         let client = try await SSHClient.connect(
             host: args.host,
             port: args.port,
-            authenticationMethod: .passwordBased(username: args.username, password: password),
+            authenticationMethod: authenticationMethod,
             hostKeyValidator: .acceptAnything(),
             reconnect: .never
         )
@@ -140,7 +209,7 @@ private func runSSHSession(_ args: SSHArguments) async -> Int32 {
 }
 
 private func printUsage() {
-    print("usage: sshc user@host [-p port] [-pw password] [command...]")
+    print("usage: sshc user@host [-p port] [-pw password] [-i keyfile] [-kp passphrase] [command...]")
 }
 
 private func commandLineArguments(

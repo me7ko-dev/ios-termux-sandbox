@@ -75,12 +75,32 @@ some-command съществуват, нито един не чете stdin, та
 се тества end-to-end преди т.5 или нова тестова команда, която чете ред
 от stdin.
 
-## 3. SSH ключове за `sshc` (вместо само парола)
-Citadel поддържа `.rsa(...)`/`.ed25519(...)` в `authenticationMethod` —
-трябва UI/команден флаг за посочване на private key файл в sandbox-а (напр.
-`~/.ssh/id_ed25519` под app container-а) плюс passphrase handling. Реална
-Termux паритетна нужда — почти никой не ползва password auth по навик.
-**Усилие:** ниско-средно, основно UX за избор на key файл.
+## 3. SSH ключове за `sshc` (вместо само парола) — [DONE в Сесия 4, чака build]
+
+`sshc` вече приема `-i <keyfile>` [+ `-kp <passphrase>` за криптирани
+ключове]. Реализация в `Sources/SSHClientCommand/SSHClientCommand.swift`:
+
+- `SSHKeyDetection.detectPrivateKeyType(from:)` (публично Citadel API)
+  парсва OpenSSH-формата на ключа директно и връща реалния тип
+  (`.rsa`/`.ed25519`/...) — не гадаем по разширение на файла.
+- За RSA: `Insecure.RSA.PrivateKey(sshRsa: keyString, decryptionKey:)`.
+- За ed25519: `Curve25519.Signing.PrivateKey(sshEd25519: keyString, decryptionKey:)`.
+- `decryptionKey: Data?` е подвеждащо име в upstream API — това е
+  суровият passphrase като UTF-8 bytes, не derive-нат ключ; Citadel сама
+  пуска `bcrypt_pbkdf` срещу salt-а, вграден в самия ключ.
+- `-i` има приоритет пред `-pw`, ако и двата са подадени.
+- `~` в пътя се разширява (`expandingTildeInPath`), за ключове под
+  app container-а, напр. `~/Documents/.ssh/id_ed25519`.
+
+**Съзнателно НЕ покрито:** ECDSA (`p256`/`p384`/`p521`) — Citadel го
+поддържа със същия модел, но не е честа Termux нужда; тривиално добавяне
+по-късно (виж `keyBasedAuthenticationMethod` — просто нов `case` в
+switch-а). Няма и UI за генериране/импорт на нов ключ от Files app —
+това е т.8 в `ROADMAP.md`.
+
+**Останало за Mac/CI:** build + реален тест срещу сървър с публичния ключ
+инсталиран, за да потвърдим, че самият handshake (не само парсването на
+файла) минава.
 
 ## 4. Multi-tab / множество сесии
 `ios_system` поддържа паралелни сесии през `ios_switchSession(sessionid)` —
