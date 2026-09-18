@@ -31,6 +31,7 @@ jobs:
           xcodebuild build \
             -scheme SysInfoCommand \
             -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build SSHClientCommand
@@ -38,6 +39,7 @@ jobs:
           xcodebuild build \
             -scheme SSHClientCommand \
             -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build TermuxSandboxApp
@@ -45,4 +47,5 @@ jobs:
           xcodebuild build \
             -scheme TermuxSandboxApp \
             -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
