@@ -8,5 +8,6 @@ enum CommandRegistry {
     static func registerAll() {
         SysInfoCommand.register()
         SSHClientCommand.register()
+        CommandsListCommand.register()
     }
 }

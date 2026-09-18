@@ -3,21 +3,48 @@
 Подредени по това колко реална Termux функционалност добавят спрямо
 инженерните усилия.
 
-## 1. Верифицирай вече бандлваните ios_system команди (проверка, не нов код)
-Проверих живия `Package.swift` на ios_system: продуктът `"ios_system"`, от
-който вече зависи `TermuxSandboxApp`, е дефиниран като
-`.library(name: "ios_system", targets: ["ios_system", "awk", "curl_ios",
-"files", "shell", "ssh_cmd", "tar", "text", "mandoc", "perl", "perlA",
-"perlB"])` — всеки target е прекомпилиран `.xcframework`. С други думи
-`ls`/`cat`/`cp` (files), `curl` (curl_ios), `tar`, `grep`/`sed` (text),
-`ssh`/`scp`/`sftp` (ssh_cmd), `awk`, `man` (mandoc), `perl` би трябвало да
-работят **веднага**, само от съществуващия dependency — не се изисква нов
-ред код. Първата задача на Mac не е "добави dependency", а "build + пусни
-`commandsAsArray()` в sysinfo-style debug команда, за да потвърдиш кое
-реално се е регистрирало" — прекомпилираните xcframeworks понякога изостават
-версийно от README-то и си струва да провериш какво точно съдържат.
-**Усилие:** много ниско (verification pass). **Стойност:** много висока —
-това е 80% от базовия Termux опит, вече изтеглено, само чака build.
+## 1. Верифицирай вече бандлваните ios_system команди — [DONE в Сесия 2, чака build]
+
+Първоначалната хипотеза ("линкваш продукта, всичко се регистрира само") се
+оказа грешна при проверка на реалния код:
+
+- Изтеглих `Resources/commandDictionary.plist` от `holzschu/ios_system` —
+  тя мапва команда → framework за **само 77 команди**, и то `bc_ios` и
+  `network_ios` framework-ите, към които сочи, изобщо не са targets в
+  `ios_system`'s own `Package.swift` — тоест `bc`/`dc`/`ping`/`dig`/`nc`/... щяха
+  да сочат към framework, който не съществува в билда.
+- Нито `man`, нито `perl` изобщо присъстват в тази plist — а `mandoc` и
+  `perl` targets вече бяха в нашия `Package.swift`. Проверих как реалното
+  приложение a-Shell (същия автор) решава това: то **не разчита** само на
+  `initializeEnvironment()` — бандлва собствено, по-пълно
+  `Resources/commandDictionary.plist` (103+ команди в нашия обхват, 143 общо
+  с неща като ffmpeg/vim/ImageMagick, които ние нямаме) и го зарежда изрично
+  през `addCommandList(path)` при старт.
+
+Направих същото, стеснено до framework-ите, които реално линкваме:
+
+- Добавих **`network_ios`** като нов package dependency (отделен repo,
+  собствен `Package.swift`, target `network_ios`) — отключва
+  `dig`/`host`/`ifconfig`/`nc`/`nslookup`/`ping`/`rlogin`/`telnet`/`whois`/`wol`.
+- Филтрирах a-Shell's командния речник до **103 команди**, чиито framework
+  е точно измежду тези, които вече линкваме (`SELF`, `awk`, `curl_ios`,
+  `files`, `network_ios`, `shell`, `ssh_cmd`, `tar`, `text`, `mandoc`,
+  `perl`) и го vendor-нах като resource:
+  `Sources/TermuxSandboxApp/Resources/commandDictionary.plist`.
+- `ShellEngine.start()` вече вика `addCommandList(...)` с този файл (виж
+  `loadBundledCommandDictionary()`), а нова диагностична команда `commands`
+  (`CommandsListCommand.swift`) пуска `commandsAsArray()` и печата
+  всичко регистрирано — това е реалният verification инструмент, пусни го
+  на устройство, за да видиш кое точно е хванало.
+- **Съзнателно пропуснато:** `bc`/`dc` — `bc_ios` няма собствен SPM repo
+  (`holzschu/bc_ios` връща 404), затова не са в обхвата. Ако ти трябват,
+  влизат в отделна точка (виж по-долу).
+
+**Останало за Mac:** build + пусни `commands` в терминала. dlopen на липсващ
+framework се проваля тихо на ниво **отделна команда** при извикване, не
+при регистрация — възможно е списъкът от `commandsAsArray()` да показва
+име, което все пак гърми при реално изпълнение, ако framework-ът не се е
+embed-нал правилно от Xcode. Това е първото нещо за проверка.
 
 ## 2. Интерактивен PTY loop за терминала
 В момента `TerminalViewController` изпраща цял ред при Enter. Termux/a-Shell
@@ -56,9 +83,15 @@ extern процес).
 **Усилие:** високо. **Стойност:** висока — това е single biggest "истински
 Termux" очакване от потребителите.
 
+## 6. `bc`/`dc` (по избор, малко усилие)
+`bc_ios` няма отделен SPM repo, но самият `bc`/`dc` изходен код е обикновен,
+преносим C (dc.c/bc от BSD calculator tools) — може да се portne като
+собствен малък SPM target по същия модел като `sysinfo`, вместо да чакаме
+holzschu да пусне SPM пакет за него. Ниско приоритетно — рядко ползвана
+Termux команда.
+
 ---
 
-Предложение за ред на изпълнение в Сесия 2: **т.1 → т.2 → т.5**, защото
-т.1 е евтина и веднага разширява командния набор, т.2 отключва
-интерактивност за всичко останало (включително т.5), а т.3/т.4 са
-самостоятелни подобрения, които не блокират нищо друго.
+Актуализиран ред на изпълнение: **т.1 done → т.2 → т.5**, защото т.2
+отключва интерактивност за всичко останало (включително т.5), а т.3/т.4/т.6
+са самостоятелни подобрения, които не блокират нищо друго.

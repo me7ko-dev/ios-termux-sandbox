@@ -1,6 +1,28 @@
-# Статус — iOS Termux-style Sandbox (Сесия 1)
+# Статус — iOS Termux-style Sandbox
 
-Дата: 2026-09-18
+Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
+
+## Сесия 2 (2026-09-18, продължение same-day) — NEXT_STEPS т.1
+
+Виж `Docs/NEXT_STEPS.md` т.1 за пълните детайли. Накратко: линкването на
+`ios_system` продукта **не е достатъчно** за `man`/`perl`/network командите —
+трябва изрично `addCommandList()` с бандлван plist, точно както прави
+a-Shell. Добавено:
+
+- Нов dependency **`network_ios`** (dig/ping/nc/telnet/...).
+- `Sources/TermuxSandboxApp/Resources/commandDictionary.plist` — 103 команди,
+  филтрирани от a-Shell's собствен shipped речник до само frameworks, които
+  реално линкваме.
+- `ShellEngine.loadBundledCommandDictionary()` — зарежда горния plist при старт.
+- Нова диагностична команда **`commands`** — пуска `commandsAsArray()`, за да
+  видиш на устройство какво реално се е регистрирало.
+
+Всичко това пак е **некомпилирано** — писано на Windows. `commands` е
+именно инструментът да провериш резултата на Mac.
+
+---
+
+# Сесия 1 (2026-09-18)
 
 ## Преди да четеш нататък — платформено ограничение
 
@@ -45,10 +67,12 @@ ios-termux-sandbox/
 │   ├── SysInfoCommand/SysInfoCommand.swift      ← нова команда #1
 │   ├── SSHClientCommand/SSHClientCommand.swift  ← нова команда #2
 │   └── TermuxSandboxApp/
-│       ├── App.swift                 (SwiftUI обвивка)
+│       ├── App.swift                  (SwiftUI обвивка)
 │       ├── TerminalViewController.swift  (UIKit + SwiftTerm)
 │       ├── ShellEngine.swift          (in-process dispatch + stdout pipe)
-│       └── CommandRegistry.swift      (регистрира новите команди при старт)
+│       ├── CommandRegistry.swift      (регистрира новите команди при старт)
+│       ├── CommandsListCommand.swift  (Сесия 2 — `commands` diagnostic)
+│       └── Resources/commandDictionary.plist  (Сесия 2 — виж по-долу)
 └── Docs/{STATUS.md, NEXT_STEPS.md}
 ```
 

@@ -33,7 +33,25 @@ final class ShellEngine {
         ios_setMiniRoot(workingDirectory.path)
 
         initializeEnvironment()
+        loadBundledCommandDictionary()
         CommandRegistry.registerAll()
+    }
+
+    /// `initializeEnvironment()` alone does not register `man`/`perl` or the
+    /// network_ios commands (dig/ping/ssh-agent's siblings etc.) — confirmed
+    /// by diffing ios_system's own default plist against a-Shell's shipped
+    /// one, which explicitly loads its own bundled dictionary via
+    /// `addCommandList()` at startup. We mirror that: ship the same mapping,
+    /// filtered to only the frameworks this project actually links (see
+    /// Docs/NEXT_STEPS.md item 1), and load it the same way.
+    private func loadBundledCommandDictionary() {
+        guard let path = Bundle.module.path(forResource: "commandDictionary", ofType: "plist") else {
+            assertionFailure("commandDictionary.plist missing from bundle resources")
+            return
+        }
+        if let error = addCommandList(path) {
+            print("ShellEngine: addCommandList failed: \(error)")
+        }
     }
 
     /// Runs `commandLine` (e.g. "ls -la", "sysinfo", "sshc user@host ls") and

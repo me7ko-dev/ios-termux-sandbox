@@ -21,7 +21,11 @@ let package = Package(
         // Pure-Swift SSH2 client (NIO-based). Chosen over ios_system's bundled
         // ssh_cmd (libssh2) for the "sshc" command below because it needs no C
         // cross-compilation step and officially targets iOS 17+ — see Docs/NEXT_STEPS.md.
-        .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.7.0")
+        .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.7.0"),
+
+        // dig/host/ifconfig/nc/nslookup/ping/rlogin/telnet/whois/wol — not part
+        // of ios_system's own Package.swift targets, needs its own dependency.
+        .package(url: "https://github.com/holzschu/network_ios.git", branch: "master")
     ],
     targets: [
         // MARK: - New commands (this session's deliverable)
@@ -52,9 +56,19 @@ let package = Package(
             name: "TermuxSandboxApp",
             dependencies: [
                 .product(name: "ios_system", package: "ios_system"),
+                .product(name: "network_ios", package: "network_ios"),
                 "SwiftTerm",
                 "SysInfoCommand",
                 "SSHClientCommand"
+            ],
+            resources: [
+                // Command→framework/function map, filtered from a-Shell's own
+                // shipped commandDictionary.plist down to exactly the
+                // frameworks this project links — see Docs/NEXT_STEPS.md
+                // item 1. Loaded explicitly via addCommandList() in
+                // ShellEngine.start(); not something ios_system registers on
+                // its own from a plain `initializeEnvironment()` call.
+                .copy("Resources/commandDictionary.plist")
             ]
         )
     ]
