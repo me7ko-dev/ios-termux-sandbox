@@ -28,7 +28,15 @@ let package = Package(
 
         // dig/host/ifconfig/nc/nslookup/ping/rlogin/telnet/whois/wol — not part
         // of ios_system's own Package.swift targets, needs its own dependency.
-        .package(url: "https://github.com/holzschu/network_ios.git", branch: "master")
+        //
+        // TEMPORARILY DISABLED (2026-09-18): network_ios's own Package.swift
+        // declares a binary-target checksum that no longer matches the actual
+        // release asset at holzschu/network_ios — `swift package resolve`
+        // fails with a checksum mismatch regardless of what we pin here (an
+        // upstream bug, not something under our control). Re-enable once
+        // holzschu fixes the release, or fork and patch the checksum
+        // ourselves. See Docs/NEXT_STEPS.md.
+        // .package(url: "https://github.com/holzschu/network_ios.git", branch: "master")
     ],
     targets: [
         // MARK: - New commands (this session's deliverable)
@@ -59,7 +67,7 @@ let package = Package(
             name: "TermuxSandboxApp",
             dependencies: [
                 .product(name: "ios_system", package: "ios_system"),
-                .product(name: "network_ios", package: "network_ios"),
+                // network_ios temporarily disabled — see dependencies list above.
                 "SwiftTerm",
                 "SysInfoCommand",
                 "SSHClientCommand"

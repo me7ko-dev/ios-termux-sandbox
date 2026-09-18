@@ -2,6 +2,34 @@
 
 Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
 
+## Сесия 3 (2026-09-18, продължение) — първи реален CI build
+
+Добавен `.github/workflows/ios-build.yml` — build на `macos-15` GitHub
+Actions runner, за да хващаме компилационни грешки без физически Mac
+(`xcodebuild build -destination 'generic/platform=iOS Simulator'` за
+трите library продукта).
+
+Два проблема хванати и оправени в тази сесия:
+
+1. **SSH submodule без CI ключ.** `ios_system`'s `wasm3` submodule е
+   регистриран през `git@github.com:...` — runner-ът няма SSH ключ,
+   `Permission denied (publickey)`. Оправено с
+   `git config --global url."https://github.com/".insteadOf "git@github.com:"`
+   като стъпка преди resolve.
+2. **`network_ios` checksum mismatch — ъпстрийм бъг, не наш.**
+   `swift package resolve` гърми с "checksum of downloaded artifact ...
+   does not match checksum specified by the manifest" за
+   `network_ios.xcframework.zip`. Проверих кода — `network_ios` се ползва
+   само за runtime dlopen през `commandDictionary.plist` (dig/ping/nc/
+   telnet/...), няма директни Swift API извиквания в нашия код — затова
+   **временно закоментиран** от `Package.swift`, за да не блокира build-а
+   на всичко останало. Ефект: тези конкретни мрежови команди няма да
+   тръгнат при извикване (dlopen ще fail-не за тях), докато не се оправи
+   ъпстрийм или не форкнем `network_ios` с поправен checksum.
+
+**Резултат:** чака следващия CI run след този push — виж GitHub Actions
+таба на репото за live статус.
+
 ## Сесия 2 (2026-09-18, продължение same-day) — NEXT_STEPS т.1
 
 Виж `Docs/NEXT_STEPS.md` т.1 за пълните детайли. Накратко: линкването на
