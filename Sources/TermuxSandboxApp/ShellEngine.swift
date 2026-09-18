@@ -40,7 +40,7 @@ final class ShellEngine {
 
     /// This tab's `ios_switchSession` key. `lazy` so it's computed once
     /// `self` is a fully-formed instance rather than during `init`.
-    private lazy var sessionToken: UnsafeRawPointer = Unmanaged.passUnretained(self).toOpaque()
+    private lazy var sessionToken: UnsafeMutableRawPointer = Unmanaged.passUnretained(self).toOpaque()
 
     init(workingDirectory: URL) {
         self.workingDirectory = workingDirectory
