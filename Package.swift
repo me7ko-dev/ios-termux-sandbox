@@ -4,7 +4,9 @@ import PackageDescription
 let package = Package(
     name: "TermuxSandbox",
     platforms: [
-        .iOS(.v16)
+        // Citadel requires iOS 17+ (see Docs/STATUS.md) — v16 built but
+        // failed to link with "requires minimum platform version 17.0".
+        .iOS(.v17)
     ],
     products: [
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
