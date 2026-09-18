@@ -10,6 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use HTTPS instead of SSH for GitHub (submodules have no CI key)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
