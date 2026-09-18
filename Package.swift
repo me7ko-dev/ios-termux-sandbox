@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
         .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
         .library(name: "GitCommand", targets: ["GitCommand"]),
+        .library(name: "CalculatorCommand", targets: ["CalculatorCommand"]),
         // Was missing — without this, an Xcode App target can't `import
         // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
         .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
@@ -65,6 +66,13 @@ let package = Package(
             ]
         ),
 
+        .target(
+            name: "CalculatorCommand",
+            dependencies: [
+                .product(name: "ios_system", package: "ios_system")
+            ]
+        ),
+
         // dig/host/ifconfig/nc/nslookup/ping/ping6/rlogin/telnet/whois/wol —
         // not part of ios_system's own Package.swift targets.
         //
@@ -100,7 +108,8 @@ let package = Package(
                 "SwiftTerm",
                 "SysInfoCommand",
                 "SSHClientCommand",
-                "GitCommand"
+                "GitCommand",
+                "CalculatorCommand"
             ],
             resources: [
                 // Command→framework/function map, filtered from a-Shell's own
