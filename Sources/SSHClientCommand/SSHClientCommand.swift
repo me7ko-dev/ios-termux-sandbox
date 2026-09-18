@@ -29,6 +29,7 @@ public enum SSHClientCommand {
         // See SysInfoCommand.register() — functionName is resolved by dlsym,
         // not passed as a raw pointer.
         replaceCommand("sshc", "sshc_main", true)
+        SSHKeygenCommand.register()
     }
 }
 

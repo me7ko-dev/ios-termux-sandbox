@@ -27,33 +27,26 @@ GitHub Actions "iOS Build Check" да светне зелено, преди сл
 
 1. ~~Верифицирай бандлваните `ios_system` команди~~ — DONE (Сесия 2).
 2. ~~Интерактивен stdin за терминала~~ — DONE (Сесия 3).
-3. **SSH ключове за `sshc`** (в процес сега) — `.ed25519`/`.rsa`
-   authenticationMethod през Citadel, флаг `-i <keyfile>` [+`-kp` passphrase].
-4. **`git` команда** — vendor `SwiftGit2` (Swift wrapper над `libgit2`,
-   вече cross-compile-нат за iOS в неговия binary target) като нов SPM
-   dependency + нов `GitCommand` target, регистриран през `replaceCommand`
-   както всички останали. Минимум: `clone`/`status`/`add`/`commit`/`push`/
-   `pull`/`log`/`diff`/`branch`/`checkout`. Credentials за push/clone по
-   HTTPS: personal access token през URL или credential callback;
-   SSH remote git по-нататък може да ползва същите ключове като т.3.
-5. **`network_ios`** — re-enable щом upstream checksum проблемът е
-   оправен (или fork + патнат Package.swift с верния checksum сами) →
-   връща `ping`/`dig`/`nc`/`ifconfig`/`nslookup`/`whois`/`telnet`/`wol`.
-6. **`bc`/`dc`** — малък собствен SPM target, portne-нат от BSD calculator
-   source (`bc_ios` няма собствен repo).
-7. **Python (`python_ios`)** — vendor прекомпилиран `Python.xcframework`,
-   нов `PythonCommand` target, `pip install` само за pure-Python/
-   precompiled-wheel пакети (без C extension компилация — sandbox
-   забранява extern compiler process).
-8. **SSH keys + git агент** довършване: `ssh-agent`-подобно управление на
-   ключове в приложението (генериране на нов ключ, импорт от Files app,
-   Keychain-backed пазене на passphrase).
-9. **Multi-tab / много сесии** — `ios_switchSession(sessionid)` + UUID per
-   tab, отделен working directory/env per таб.
+3. ~~SSH ключове за `sshc`~~ — DONE (Сесия 4).
+4. ~~`git` команда~~ — DONE (Сесия 4, `GitCommand` върху SwiftGit3).
+5. ~~`network_ios` re-enable~~ — DONE (Сесия 4, vendor-нат локално).
+6. ~~`bc`/`dc`~~ — DONE (Сесия 4, чист Swift, Double-precision).
+7. ~~Python (embedded CPython 3.13)~~ — DONE (Сесия 4, beeware/Python-Apple-support).
+8. ~~SSH keys довършване: `keygen` команда~~ — DONE (Сесия 4). Генерира
+   ed25519 keypair директно в OpenSSH формат (`Curve25519.Signing
+   .PrivateKey.makeSSHRepresentation`), веднага съвместим с `sshc -i`/
+   `git clone -i`. **Съзнателно НЕ включено:** encrypted private keys
+   (`-N passphrase`) — Citadel's публично API за сериализация няма cipher
+   опция; импорт от Files app document picker (UI слой, не команда —
+   не е блокиращо, `-i <path под sandbox>` вече работи с всеки path,
+   включително такъв, копиран ръчно през Files app в app container-а).
+9. ~~Multi-tab / много сесии~~ — DONE (Сесия 4, `TabbedTerminalViewController`
+   + `ios_switchSession` per `ShellEngine`).
 10. Разширяване на бандлвания `commandDictionary.plist` максимално към
     пълния a-Shell списък (143 команди), доколкото framework-ите за тях
     реално се линкват в Package.swift (ffmpeg/vim/ImageMagick са отделни,
     по-тежки vendor-ирания — оценяваме поотделно дали си заслужават).
+    Оставащо, ниско приоритетно.
 
 ## Track B — Browser/no-compile front-end (паралелно, по-нисък приоритет)
 
