@@ -285,6 +285,61 @@ feature set. Ако точна arbitrary-precision някога потрябва
 **Останало за Mac/CI:** build + `echo "2^10" | bc`, `echo "3 4 + p" | dc`
 на реално устройство.
 
+## 7. `wasm3` вече работи — стотици допълнителни команди без vendor-иране (Docs/ROADMAP.md т.10)
+
+При проучване на a-Shell's пълен `commandDictionary.plist` (143 команди
+срещу нашите 103) очаквах, че липсващите ~40 (jq, xxd, rsync, lua,
+figlet, hexdump...) изискват вендориране на десетки отделни xcframeworks
+— по едно на команда, всяко с потенциал за собствен checksum bug като
+`network_ios`. При проверка на реалния код на `holzschu/ios_system`
+(`ios_system.m`, redovете ~2705 и ~3297) излезе много по-добра новина:
+
+**`wasm3` вече е линкнат и работи в нашето приложение, без промяна.**
+`shell.framework` (част от `.product(name: "ios_system", package:
+"ios_system")`, което вече консумираме) съдържа `wasm3.c` — пълноценен
+WebAssembly интерпретатор (WASI-съвместим). `ios_system`'s собствен
+dispatcher автоматично проверява за файл `<command>`, `<command>.wasm3`
+или `<command>.wasm` във всяка PATH директория (включително
+`~/Documents/bin`, вече в PATH по подразбиране от `initializeEnvironment()`)
+и, ако намери такъв, автоматично вика `wasm3 <файл> <args>` вместо
+"command not found". Записът `wasm3` вече е в нашия
+`commandDictionary.plist` (наследен от Сесия 2's филтриране) →
+`shell.framework/shell`, function `wasm3`.
+
+**Практическо значение:** `holzschu/a-Shell-commands` repo-то хоства
+десетки прекомпилирани `.wasm`/`.wasm3` команди (base64, comm, cut,
+expr, figlet, fold, hexdump, jot, tree, xz, zip/unzip, дори ffmpeg) на
+`https://github.com/holzschu/a-Shell-commands/releases/download/0.1/<name>`.
+Потребител може ВЕЧЕ, без чакане на нов build:
+```
+curl -L https://github.com/holzschu/a-Shell-commands/releases/download/0.1/hexdump \
+  -o ~/Documents/bin/hexdump --create-dirs
+chmod +x ~/Documents/bin/hexdump
+hexdump somefile   # ios_system намира hexdump.wasm3 в PATH и го пуска през wasm3 автоматично
+```
+
+**Съзнателно НЕ implementirano:** a-Shell's собствен `pkg install <name>`
+package manager script разчита на shebang auto-dispatch за `#!/bin/sh`
+скриптове, а `ios_system.m` твърдо превежда `sh` shebang → команда
+`dash` (ред ~3408: `if ([scriptNameString isEqualToString:@"sh"])
+scriptNameString = @"dash";`), не към нашия собствен `sh` (`SELF`/
+`sh_main`). Ние **нямаме** `dash.framework` линкнат — значи автоматичното
+изпълнение на сваления `.pkg` shell script чрез shebang **няма** да
+проработи директно (ще гърми с "command not found: dash"), макар че
+нашият `sh` работи чудесно при явно извикване (`sh script.sh`). Опитах
+да преценя дали да пиша собствена native Swift реимплементация на
+`pkg install`, но реалните package скриптове варират достатъчно
+(прости `curl`+`chmod` срещу `figlet`-стил tar.gz extraction с `mv`/`mkdir`
+по няколко файла) — regex-базиран generic parser би бил крехък и
+непроверим без устройство. Оставено като ръчен `curl`+`chmod` workflow
+по-горе, вместо полу-работещ `pkg`, който тихо ще се чупи на по-сложни
+пакети.
+
+**Останало за Mac/CI:** реален тест на `hexdump.wasm3`-стил команда на
+устройство, за да потвърдим, че wasm3 наистина се справя (интерпретаторът
+е верифициран в кода, но никога не е бил извикан на реално устройство
+в тази сесия).
+
 ---
 
 Актуализиран ред на изпълнение: **т.1 done → т.2 → т.5**, защото т.2

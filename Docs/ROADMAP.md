@@ -42,11 +42,18 @@ GitHub Actions "iOS Build Check" да светне зелено, преди сл
    включително такъв, копиран ръчно през Files app в app container-а).
 9. ~~Multi-tab / много сесии~~ — DONE (Сесия 4, `TabbedTerminalViewController`
    + `ios_switchSession` per `ShellEngine`).
-10. Разширяване на бандлвания `commandDictionary.plist` максимално към
-    пълния a-Shell списък (143 команди), доколкото framework-ите за тях
-    реално се линкват в Package.swift (ffmpeg/vim/ImageMagick са отделни,
-    по-тежки vendor-ирания — оценяваме поотделно дали си заслужават).
-    Оставащо, ниско приоритетно.
+10. ~~Разширяване към пълния a-Shell команден списък~~ — REASSESSED
+    (Сесия 4/5): не е нужно допълнително vendor-иране за повечето от
+    липсващите ~40 команди. `wasm3` (WebAssembly интерпретатор) вече е
+    линкнат чрез `shell.framework` и `ios_system` автоматично изпълнява
+    `.wasm3`/`.wasm` файлове от PATH по име — десетки прекомпилирани
+    команди от `holzschu/a-Shell-commands` работят веднага през
+    ръчен `curl`+`chmod` workflow, без нов app build. Виж
+    `Docs/NEXT_STEPS.md` т.7 за пълни детайли, включително защо не
+    implementirahme собствен `pkg install` (изисква `dash`, който нямаме
+    линкнат, и generic parsing на разнородни package скриптове е
+    крехко). `ffmpeg`/`vim`/`ImageMagick` остават извън обхват като
+    тежки native vendor-ирания.
 
 ## Track B — Browser/no-compile front-end (паралелно, по-нисък приоритет)
 
