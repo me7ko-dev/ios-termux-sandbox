@@ -1,0 +1,99 @@
+#cloud-config
+# First-boot configuration for the in-app Ubuntu 22.04 VM. Baked into
+# Sources/LinuxVM/Resources/seed.iso by Scripts/make-seed-iso.py — edit this
+# file, then re-run that script. Bump instance-id in meta-data whenever you
+# change it, otherwise cloud-init treats an existing disk as "already done".
+
+hostname: ubuntu
+manage_etc_hosts: true
+
+# The app logs in over SSH (127.0.0.1:2222 -> guest :22, forwarded by QEMU's
+# user-mode network) with this user/password. The port is bound to the
+# device's loopback only. Change it with `passwd` and update the password in
+# the app's settings afterwards.
+users:
+  - name: ubuntu
+    gecos: Ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [adm, sudo]
+    lock_passwd: false
+    passwd: $6$termuxios$GD7D1tfG3VjvnCr7q47x527XG1BI73XLR50yVhk3AE46aGqvpajrHT3bPedgjbLmxDVe8JDOYeuEVEz52e0uO.
+ssh_pwauth: true
+
+# The app grows disk.qcow2 to the requested size before first boot; these
+# make the root partition and ext4 filesystem follow it.
+growpart:
+  mode: auto
+  devices: ["/"]
+resize_rootfs: true
+
+write_files:
+  # Serial console (what the app shows while the VM boots, and the fallback
+  # terminal if SSH is unavailable) logs straight in, like Termux does.
+  - path: /etc/systemd/system/serial-getty@ttyAMA0.service.d/autologin.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin ubuntu --keep-baud 115200,57600,38400,9600 %I $TERM
+  # A serial line has no window-size signalling, so ask the terminal for its
+  # size once per login. The SSH session gets real resize events instead.
+  - path: /etc/profile.d/99-serial-termsize.sh
+    content: |
+      case "$(tty 2>/dev/null)" in
+        /dev/ttyAMA0)
+          if IFS='[;R' read -rs -t 2 -d R -p $'\e7\e[9999;9999H\e[6n\e8' _ rows cols < /dev/tty; then
+            stty rows "$rows" cols "$cols"
+          fi
+          export TERM=xterm-256color
+          ;;
+      esac
+  # The cloud image's kernel has no driver for the virt board's RTC
+  # (rtc-pl031 lives in linux-modules-extra), and NTP may be unreachable,
+  # so the guest would boot with its clock at the image build date — and
+  # apt rejects every repository as "not valid yet". The app passes the
+  # current time as ios.epoch=<unix seconds> on the kernel command line;
+  # this sets the clock from it early in every boot. The app also re-syncs
+  # the clock each time it (re)connects over SSH, which covers the time the
+  # app spent suspended in the background.
+  - path: /usr/local/sbin/ios-clock
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      epoch=$(sed -n 's/.*ios\.epoch=\([0-9]*\).*/\1/p' /proc/cmdline)
+      [ -n "$epoch" ] || exit 0
+      target=$((epoch + $(cut -d. -f1 /proc/uptime)))
+      [ "$target" -gt "$(date +%s)" ] && date -u -s "@$target" >/dev/null
+      exit 0
+  - path: /etc/systemd/system/ios-clock.service
+    content: |
+      [Unit]
+      Description=Set the clock from the iOS host (no RTC driver in this kernel)
+      DefaultDependencies=no
+      Before=sysinit.target time-set.target
+      Wants=time-set.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/ios-clock
+      [Install]
+      WantedBy=sysinit.target
+  # Marker the app waits for on the serial console before switching to SSH.
+  - path: /etc/systemd/system/ios-ready.service
+    content: |
+      [Unit]
+      Description=Tell the iOS host that sshd is up
+      After=ssh.service
+      Wants=ssh.service
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'echo IOS-VM-READY > /dev/ttyAMA0'
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, ios-clock.service]
+  - [systemctl, enable, --now, ios-ready.service]
+  - [systemctl, restart, serial-getty@ttyAMA0.service]
+
+final_message: "cloud-init finished after $UPTIME seconds"

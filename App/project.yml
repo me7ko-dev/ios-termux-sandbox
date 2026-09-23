@@ -1,0 +1,76 @@
+# XcodeGen spec for the installable iOS app:  brew install xcodegen
+#   ./Scripts/fetch-qemu-frameworks.sh     # -> Vendor/QEMU (needs gh)
+#   xcodegen generate --spec App/project.yml
+#   open App/TermuxSandbox.xcodeproj
+# CI does the same and uploads an unsigned .ipa for SideStore/AltStore —
+# see .github/workflows/ios-build.yml and Docs/STATUS.md.
+name: TermuxSandbox
+options:
+  bundleIdPrefix: dev.me7ko
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  TermuxSandbox:
+    path: ..
+targets:
+  TermuxSandbox:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - package: TermuxSandbox
+        product: TermuxSandboxApp
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Ubuntu Terminal
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: App.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.me7ko.termuxsandbox
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+    postCompileScripts:
+      - name: Embed QEMU frameworks
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          SRC="${SRCROOT}/../Vendor/QEMU/Frameworks"
+          if [ ! -d "$SRC" ]; then
+            echo "warning: Vendor/QEMU missing — run Scripts/fetch-qemu-frameworks.sh; the Ubuntu tab will not be able to boot."
+            exit 0
+          fi
+          DEST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          mkdir -p "$DEST"
+          rsync -a --delete-excluded "$SRC/" "$DEST/"
+          if [ "${CODE_SIGNING_ALLOWED:-YES}" = "YES" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            for fw in "$SRC"/*.framework; do
+              /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$DEST/$(basename "$fw")"
+            done
+          fi
+schemes:
+  TermuxSandbox:
+    build:
+      targets:
+        TermuxSandbox: all
+    run:
+      config: Debug
+    archive:
+      config: Release

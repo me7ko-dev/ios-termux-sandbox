@@ -1,3 +1,4 @@
+import LinuxVM
 import SwiftUI
 import UIKit
 
@@ -14,17 +15,24 @@ public struct TerminalScreen: UIViewControllerRepresentable {
     public func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {}
 }
 
-/// NOTE: not wired up as `@main` — this package builds as a library
-/// (SwiftPM can't emit a signed .app bundle). On Mac, create an Xcode iOS App
-/// target, add this package as a local dependency, and set that target's
-/// `@main` App struct's body to `TerminalScreen().ignoresSafeArea()`.
-/// See Docs/STATUS.md.
+/// Two terminals: the full Ubuntu 22.04 VM (default — real Linux, apt,
+/// everything) and the lightweight in-process ios_system shell, which
+/// starts instantly and works on files in the app's Documents folder.
+///
+/// The @main App struct lives in App/Sources/Main.swift (the Xcode app
+/// target generated from App/project.yml) and just shows this view.
 public struct TermuxSandboxRootView: View {
     public init() {}
 
     public var body: some View {
-        TerminalScreen()
-            .ignoresSafeArea()
-            .preferredColorScheme(.dark)
+        TabView {
+            LinuxTerminalScreen()
+                .ignoresSafeArea(.container, edges: .top)
+                .tabItem { Label("Ubuntu", systemImage: "terminal") }
+            TerminalScreen()
+                .ignoresSafeArea(.container, edges: .top)
+                .tabItem { Label("iOS shell", systemImage: "apple.terminal") }
+        }
+        .preferredColorScheme(.dark)
     }
 }

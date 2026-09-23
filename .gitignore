@@ -4,3 +4,7 @@ DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 .DS_Store
+Vendor/
+App/*.xcodeproj/
+build/
+*.ipa

@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "SysInfoCommand", targets: ["SysInfoCommand"]),
         .library(name: "SSHClientCommand", targets: ["SSHClientCommand"]),
         .library(name: "GitCommand", targets: ["GitCommand"]),
+        .library(name: "LinuxVM", targets: ["LinuxVM"]),
         // Was missing — without this, an Xcode App target can't `import
         // TermuxSandboxApp` to get `TermuxSandboxRootView` at all.
         .library(name: "TermuxSandboxApp", targets: ["TermuxSandboxApp"])
@@ -62,7 +63,13 @@ let package = Package(
         // port and have no Package.swift at all. Transitively pulls in
         // Clibgit2 (a prebuilt libgit2 xcframework, checksum verified by
         // hand against the real release asset).
-        .package(url: "https://github.com/light-tech/SwiftGit2.git", branch: "spm")
+        .package(url: "https://github.com/light-tech/SwiftGit2.git", branch: "spm"),
+
+        // Explicit for LinuxVM's SSH PTY session (PseudoTerminalRequest,
+        // ByteBuffer). Same URL/range Citadel itself pins, so SwiftPM
+        // resolves one copy — see Citadel's own Package.swift.
+        .package(url: "https://github.com/Wellz26/swift-nio-ssh.git", "0.3.4" ..< "0.4.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0")
     ],
     targets: [
         // MARK: - New commands (this session's deliverable)
@@ -92,6 +99,34 @@ let package = Package(
             ]
         ),
 
+        // MARK: - Ubuntu 22.04 VM (full Linux, QEMU in-process)
+
+        // dlopen()s QEMU and runs it on its own thread, in-process (iOS has
+        // no fork/exec). C rather than Swift because it has to catch QEMU's
+        // exit() calls with atexit + pthread_exit, like UTM does.
+        .target(name: "CQEMUBootstrap"),
+
+        // Downloads/verifies the pinned Ubuntu cloud image, boots it under
+        // QEMU and gives a terminal into it (serial console while booting,
+        // then SSH with a real PTY). The QEMU frameworks themselves are
+        // embedded by the app target — see Scripts/fetch-qemu-frameworks.sh
+        // and App/project.yml; SwiftPM has no way to ship them.
+        .target(
+            name: "LinuxVM",
+            dependencies: [
+                "CQEMUBootstrap",
+                "Citadel",
+                "SwiftTerm",
+                .product(name: "NIOSSH", package: "swift-nio-ssh"),
+                .product(name: "NIOCore", package: "swift-nio")
+            ],
+            resources: [
+                // cloud-init NoCloud seed built from Guest/cloud-init/ by
+                // Scripts/make-seed-iso.py.
+                .copy("Resources/seed.iso")
+            ]
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -109,7 +144,8 @@ let package = Package(
                 "SwiftTerm",
                 "SysInfoCommand",
                 "SSHClientCommand",
-                "GitCommand"
+                "GitCommand",
+                "LinuxVM"
             ],
             resources: [
                 // Command→framework/function map, filtered from a-Shell's own
