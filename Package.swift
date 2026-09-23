@@ -96,7 +96,12 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftGit2", package: "SwiftGit2"),
                 .product(name: "ios_system", package: "ios_system")
-            ]
+            ],
+            // Clibgit2's static libgit2.a calls iconv_open/iconv/iconv_close
+            // (path precomposition, NTLM) but doesn't declare the library —
+            // only surfaced when the first real .app got linked (CI
+            // package-ipa: "Undefined symbols: _iconv").
+            linkerSettings: [.linkedLibrary("iconv")]
         ),
 
         // MARK: - Ubuntu 22.04 VM (full Linux, QEMU in-process)
