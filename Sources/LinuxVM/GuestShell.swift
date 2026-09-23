@@ -66,6 +66,13 @@ final class GuestShell: @unchecked Sendable {
         return "f=$(mktemp) && printf %s '\(encoded)' | base64 -d > \"$f\" && \(env) bash \"$f\" \(args); rc=$?; rm -f \"$f\"; exit $rc"
     }
 
+    /// Like `scriptCommand`, but detaches the script (nohup, output to
+    /// `logPath` in the guest) so the SSH command returns immediately.
+    static func backgroundScriptCommand(_ script: String, name: String, logPath: String) -> String {
+        let encoded = Data(script.utf8).base64EncodedString()
+        return "mkdir -p ~/.cache && f=~/.cache/\(name).sh && printf %s '\(encoded)' | base64 -d > \"$f\" && (nohup bash \"$f\" > \(logPath) 2>&1 < /dev/null &)"
+    }
+
     static func quote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

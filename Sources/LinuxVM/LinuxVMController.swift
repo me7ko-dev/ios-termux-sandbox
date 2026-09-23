@@ -240,7 +240,26 @@ public final class LinuxVMController {
 
     private func becameReady() async {
         await syncGuest()
+        await ensureClaudeCode()
         state = .ready
+    }
+
+    /// Claude Code in the guest's terminal, installed automatically: the
+    /// first time the VM is up (and on later starts until it succeeds) the
+    /// official installer runs detached in the guest, so the terminal is
+    /// usable meanwhile. See Resources/claude-code-install.sh.
+    private func ensureClaudeCode() async {
+        if (try? await shell.run("test -x ~/.local/bin/claude && echo yes"))?.contains("yes") == true {
+            return
+        }
+        guard let script = Self.bundledScript("claude-code-install") else { return }
+        do {
+            try await shell.run(GuestShell.backgroundScriptCommand(
+                script, name: "ios-claude-install", logPath: "~/.cache/ios-claude-install.log"))
+            status("Installing Claude Code in the background — type `claude` once it's done (log: ~/.cache/ios-claude-install.log)")
+        } catch {
+            status("Could not start the Claude Code install: \(error.localizedDescription)")
+        }
     }
 
     /// Clock (frozen while paused/suspended, and the snapshot's time after

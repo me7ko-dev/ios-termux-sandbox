@@ -134,7 +134,10 @@ let package = Package(
                 // TigerVNC install/start.
                 .copy("Resources/guest-tune.sh"),
                 .copy("Resources/desktop-install.sh"),
-                .copy("Resources/desktop-start.sh")
+                .copy("Resources/desktop-start.sh"),
+                // Claude Code (official native installer) for the guest
+                // terminal, run detached on every start until installed.
+                .copy("Resources/claude-code-install.sh")
             ]
         ),
 
