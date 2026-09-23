@@ -10,13 +10,14 @@
 #                            the app asks for (see DesktopProfile.swift)
 #   no screensaver/locker    nothing to wake up for inside a VM
 set -euo pipefail
-export DEBIAN_FRONTEND=noninteractive
+# Passed through sudo explicitly: sudo's env_reset drops an exported one,
+# and debconf then tries to prompt on a terminal that isn't there.
 
 echo "==> apt-get update"
-sudo -n apt-get -o DPkg::Lock::Timeout=600 update -q
+sudo -n DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 update -q
 
 echo "==> Installing XFCE + TigerVNC (the slow part under emulation)"
-sudo -n apt-get -o DPkg::Lock::Timeout=600 install -y -q --no-install-recommends \
+sudo -n DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -q --no-install-recommends \
     xfce4-session xfwm4 xfdesktop4 xfce4-panel xfce4-settings xfconf \
     xfce4-terminal thunar mousepad \
     tigervnc-standalone-server tigervnc-tools \
