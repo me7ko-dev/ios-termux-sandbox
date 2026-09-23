@@ -22,7 +22,7 @@ sudo -n DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 instal
     xfce4-terminal thunar mousepad \
     tigervnc-standalone-server tigervnc-tools \
     dbus-x11 at-spi2-core xfonts-base fonts-dejavu-core \
-    adwaita-icon-theme gnome-themes-extra
+    adwaita-icon-theme gnome-themes-extra elementary-xfce-icon-theme
 
 echo "==> Session script"
 sudo -n tee /usr/local/bin/ios-desktop-session >/dev/null <<'SESSION'
@@ -53,7 +53,7 @@ cat > "$conf/xsettings.xml" <<'XML'
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
     <property name="ThemeName" type="string" value="Adwaita-dark"/>
-    <property name="IconThemeName" type="string" value="Adwaita"/>
+    <property name="IconThemeName" type="string" value="elementary-xfce-dark"/>
     <property name="EnableEventSounds" type="bool" value="false"/>
   </property>
   <property name="Xft" type="empty">
