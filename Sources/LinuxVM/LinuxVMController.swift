@@ -51,6 +51,9 @@ public final class LinuxVMController {
     private var consoleHistory = Data()
     private var serialTail = ""
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
+    /// The stop + savevm started on entering the background. QEMU's monitor
+    /// is blocked until savevm returns, so coming back has to wait for it.
+    private var snapshotTask: Task<Void, Never>?
 
     private init() {
         profile = DeviceProfile.current()
@@ -162,8 +165,18 @@ public final class LinuxVMController {
             return
         }
 
+        if store.snapshotMarker() != nil, store.restoreWasAttempted {
+            // The last launch tried this snapshot and never got to a ready
+            // VM — most likely iOS killed the app for memory while loading
+            // it. Trying again would just crash again, on every launch.
+            store.discardSnapshotMarker()
+            status("The saved snapshot could not be restored last time (the app was closed while loading it). Booting normally instead.")
+        }
+        store.restoreWasAttempted = false
+
         if let marker = store.snapshotMarker() {
             // The snapshot only loads into the machine it was taken on.
+            store.restoreWasAttempted = true
             configuration.cpuCount = marker.cpuCount
             configuration.memoryMiB = marker.memoryMiB
             configuration.restoreSnapshot = Self.snapshotTag
@@ -204,6 +217,7 @@ public final class LinuxVMController {
             // wait for, just sshd accepting again.
             do {
                 try await shell.waitUntilReachable(timeout: 120)
+                store.restoreWasAttempted = false
                 await becameReady()
             } catch {
                 status("Restored VM is not answering on SSH: \(error.localizedDescription)")
@@ -303,7 +317,7 @@ public final class LinuxVMController {
             Self.onMain { $0.endBackgroundTask() }
         }
         let config = configuration
-        Task {
+        snapshotTask = Task {
             do {
                 try await qmp.execute("stop")
                 let started = Date()
@@ -320,6 +334,14 @@ public final class LinuxVMController {
     private func enterForeground() {
         guard state == .paused else { return }
         Task {
+            if let snapshot = snapshotTask {
+                // Back before savevm finished (iOS suspends it with the app
+                // after ~30 s): the guest stays stopped until it's done.
+                // Say so instead of leaving a terminal that looks frozen.
+                status("\nFinishing the VM snapshot started when the app left the screen — the terminal continues right after…")
+                await snapshot.value
+                snapshotTask = nil
+            }
             _ = try? await qmp.execute("cont")
             await syncGuest()
             state = .ready
@@ -360,5 +382,21 @@ extension ImageStore {
 
     func discardSnapshotMarker() {
         try? FileManager.default.removeItem(at: snapshotMarkerURL)
+        restoreWasAttempted = false
     }
+
+    /// Set while a -loadvm is in progress; still set at the next launch
+    /// means that restore never finished (the app was killed meanwhile).
+    var restoreWasAttempted: Bool {
+        get { FileManager.default.fileExists(atPath: restoreAttemptURL.path) }
+        set {
+            if newValue {
+                FileManager.default.createFile(atPath: restoreAttemptURL.path, contents: Data())
+            } else {
+                try? FileManager.default.removeItem(at: restoreAttemptURL)
+            }
+        }
+    }
+
+    private var restoreAttemptURL: URL { directory.appendingPathComponent("restore-attempt") }
 }

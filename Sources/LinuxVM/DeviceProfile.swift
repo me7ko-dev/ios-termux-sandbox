@@ -42,10 +42,27 @@ public struct DeviceProfile: Sendable {
         ),
     ]
 
+    /// The hand-picked RAM assumes the increased-memory-limit entitlement,
+    /// which free (personal team) signing doesn't grant. Without it iOS
+    /// allows the whole app ~3 GB, so a 2560 MiB guest gets the app killed
+    /// once the guest has touched most of its RAM (Claude Code, a desktop)
+    /// or during savevm, which reads all of it. Leave room for QEMU itself,
+    /// its TCG cache and the UI.
+    func fitted(toAvailableMiB available: Int) -> DeviceProfile {
+        guard available > 0 else { return self }
+        let budget = (available - translationCacheMiB - 768) / 256 * 256
+        guard budget < memoryMiB else { return self }
+        return DeviceProfile(
+            name: name, cpuCount: cpuCount, memoryMiB: max(768, budget),
+            translationCacheMiB: translationCacheMiB,
+            desktopWidth: desktopWidth, desktopHeight: desktopHeight
+        )
+    }
+
     @MainActor
     public static func current() -> DeviceProfile {
         if let profile = known[machineIdentifier] {
-            return profile
+            return profile.fitted(toAvailableMiB: Int(lvm_available_memory() / (1024 * 1024)))
         }
         let available = Int(lvm_available_memory() / (1024 * 1024))
         let budget = available > 0 ? available : Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024)) / 3
