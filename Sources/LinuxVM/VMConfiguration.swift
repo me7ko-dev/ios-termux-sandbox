@@ -12,6 +12,12 @@ public struct VMConfiguration: Sendable {
     public var sshPort: UInt16 = 2222
     /// Loopback port QEMU listens on for the guest's serial console.
     public var serialPort: UInt16 = 45022
+    /// Loopback port for QMP (pause/resume/savevm).
+    public var qmpPort: UInt16 = 45023
+    /// Loopback port forwarded to the guest's VNC desktop (display :1).
+    public var vncPort: UInt16 = 5901
+    /// Internal qcow2 snapshot to restore instead of booting (`-loadvm`).
+    public var restoreSnapshot: String?
     /// TCG translation cache size in MiB.
     public var translationCacheMiB: Int
     /// Masks snapd on the kernel command line. Seeding snaps (lxd, core22)
@@ -27,23 +33,19 @@ public struct VMConfiguration: Sendable {
         self.translationCacheMiB = translationCacheMiB
     }
 
-    /// Sized from what this device can actually give the app: all
-    /// performance cores (MTTCG runs one host thread per vCPU), and about
-    /// half of the memory jetsam will let the process have (QEMU itself,
-    /// the TCG cache and the app's UI need the rest).
+    @MainActor
     public static func recommended() -> VMConfiguration {
-        let available = Int(lvm_available_memory() / (1024 * 1024))
-        let budget = available > 0 ? available : Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024)) / 3
-        let memory = min(4096, max(768, (budget / 2) / 256 * 256))
-        let cores = max(1, min(4, ProcessInfo.processInfo.activeProcessorCount))
+        let profile = DeviceProfile.current()
         return VMConfiguration(
-            cpuCount: cores,
-            memoryMiB: memory,
+            cpuCount: profile.cpuCount,
+            memoryMiB: profile.memoryMiB,
             diskSize: 32 * 1024 * 1024 * 1024,
-            translationCacheMiB: budget >= 3072 ? 256 : 128
+            translationCacheMiB: profile.translationCacheMiB
         )
     }
 
+    // Never add/remove/reorder -device entries lightly: a snapshot saved by
+    // one build only restores (-loadvm) on the exact same machine config.
     func arguments(store: ImageStore, seedISO: URL, dataDirectory: URL?) -> [String] {
         var kernelCommandLine = [
             "root=LABEL=\(UbuntuRelease.rootLabel)",
@@ -78,14 +80,18 @@ public struct VMConfiguration: Sendable {
             "-device", "virtio-blk-pci,drive=root",
             "-drive", "if=none,id=seed,file=\(seedISO.path),format=raw,readonly=on",
             "-device", "virtio-blk-pci,drive=seed",
-            "-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:\(sshPort)-:22",
+            "-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:\(sshPort)-:22,hostfwd=tcp:127.0.0.1:\(vncPort)-:5901",
             // romfile= : no PXE option ROM, so QEMU doesn't go looking for
             // efi-virtio.rom in a data directory we don't ship.
             "-device", "virtio-net-pci,netdev=net0,romfile=",
             "-device", "virtio-rng-pci",
             "-chardev", "socket,id=con0,host=127.0.0.1,port=\(serialPort),server=on,wait=off",
             "-serial", "chardev:con0",
+            "-qmp", "tcp:127.0.0.1:\(qmpPort),server=on,wait=off",
         ]
+        if let restoreSnapshot {
+            args += ["-loadvm", restoreSnapshot]
+        }
         if let dataDirectory {
             args += ["-L", dataDirectory.path]
         }

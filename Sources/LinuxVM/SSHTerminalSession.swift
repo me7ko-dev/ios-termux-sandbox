@@ -49,10 +49,6 @@ final class SSHTerminalSession: @unchecked Sendable {
             reconnect: .never
         )
         self.client = client
-        // The guest has no RTC driver and its clock stops while iOS has
-        // the app suspended; bring it back to the phone's time on every
-        // connect (passwordless sudo is set up by the seed ISO).
-        _ = try? await client.executeCommand("sudo -n date -u -s @\(Int(Date().timeIntervalSince1970)) >/dev/null 2>&1")
         let request = SSHChannelRequestEvent.PseudoTerminalRequest(
             wantReply: true,
             term: "xterm-256color",

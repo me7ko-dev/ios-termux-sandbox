@@ -15,9 +15,11 @@ public struct TerminalScreen: UIViewControllerRepresentable {
     public func updateUIViewController(_ uiViewController: TerminalViewController, context: Context) {}
 }
 
-/// Two terminals: the full Ubuntu 22.04 VM (default — real Linux, apt,
-/// everything) and the lightweight in-process ios_system shell, which
-/// starts instantly and works on files in the app's Documents folder.
+/// Three tabs over one Ubuntu 22.04 VM plus the lightweight shell:
+///  - Ubuntu: terminal into the VM (real Linux, apt, everything)
+///  - Desktop: the same VM's XFCE desktop over VNC
+///  - iOS shell: in-process ios_system commands, starts instantly and works
+///    on files in the app's Documents folder
 ///
 /// The @main App struct lives in App/Sources/Main.swift (the Xcode app
 /// target generated from App/project.yml) and just shows this view.
@@ -29,6 +31,9 @@ public struct TermuxSandboxRootView: View {
             LinuxTerminalScreen()
                 .ignoresSafeArea(.container, edges: .top)
                 .tabItem { Label("Ubuntu", systemImage: "terminal") }
+            DesktopScreen()
+                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                .tabItem { Label("Desktop", systemImage: "macwindow") }
             TerminalScreen()
                 .ignoresSafeArea(.container, edges: .top)
                 .tabItem { Label("iOS shell", systemImage: "apple.terminal") }

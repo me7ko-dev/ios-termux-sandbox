@@ -128,7 +128,13 @@ let package = Package(
             resources: [
                 // cloud-init NoCloud seed built from Guest/cloud-init/ by
                 // Scripts/make-seed-iso.py.
-                .copy("Resources/seed.iso")
+                .copy("Resources/seed.iso"),
+                // Guest-side scripts the app runs over SSH: idempotent
+                // tune-up on every connect, and the Desktop tab's XFCE +
+                // TigerVNC install/start.
+                .copy("Resources/guest-tune.sh"),
+                .copy("Resources/desktop-install.sh"),
+                .copy("Resources/desktop-start.sh")
             ]
         ),
 
