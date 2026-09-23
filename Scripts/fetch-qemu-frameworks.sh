@@ -81,13 +81,11 @@ install_name_tool -id @rpath/qemu-aarch64-softmmu-tcti.framework/qemu-aarch64-so
 ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$TCTI/Info.plist")"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $ID-tcti" "$TCTI/Info.plist"
 
-# Old signatures are UTM's and invalid after the edits above; the app
-# build (or the sideloading tool) signs everything again.
+# UTM's signatures are invalid after the edits above; the app build (or
+# ldid in CI, or the sideloading tool) replaces them. Deliberately no
+# `codesign --remove-signature`: it leaves binaries ldid then refuses to
+# sign ("_assert(): end >= size - 0x10", seen on 10 frameworks in CI).
 find "$OUT/Frameworks" -name _CodeSignature -type d -prune -exec rm -rf {} +
-for fw in "$OUT"/Frameworks/*.framework; do
-    bin="$fw/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist")"
-    codesign --remove-signature "$bin" 2>/dev/null || true
-done
 
 # The entry points LinuxVM's CQEMUBootstrap dlsym()s — fail here, not on
 # the phone, if a future UTM release renames them.

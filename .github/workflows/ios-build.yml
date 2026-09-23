@@ -112,7 +112,9 @@ jobs:
           ls "$APP" "$APP/Frameworks"
           rm -rf ipa && mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
-          find ipa/Payload/TermuxSandbox.app/Frameworks -maxdepth 1 -name '*.framework' -exec ldid -S {} \;
+          for fw in ipa/Payload/TermuxSandbox.app/Frameworks/*.framework; do
+            ldid -S "$fw" || { echo "::error::ldid failed on $fw"; exit 1; }
+          done
           ldid -SApp/App.entitlements -Idev.me7ko.termuxsandbox ipa/Payload/TermuxSandbox.app/TermuxSandbox
           (cd ipa && zip -qry ../UbuntuTerminal.ipa Payload)
           ls -lh UbuntuTerminal.ipa
