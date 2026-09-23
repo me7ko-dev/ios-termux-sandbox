@@ -84,6 +84,21 @@ RTC-то на `virt` (`rtc-pl031` е в `linux-modules-extra`), а NTP може 
 `increased-memory-limit` + `extended-virtual-addressing`, като UTM).
 Инсталиране: SideStore/AltStore → после StikDebug за JIT.
 
+**CI резултат: ✅ зелен** (run
+[35823397466](https://github.com/me7ko-dev/ios-termux-sandbox/actions/runs/35823397466)):
+`LinuxVM` компилира за iOS, приложението се link-ва, `package-ipa` вади
+QEMU от UTM (проверката с `nm` за `qemu_init`/`qemu_main_loop`/`qemu_cleanup`
+мина и за двата варианта), artifact `UbuntuTerminal-ipa` ≈ 79 MB. В
+`Frameworks/` са `qemu-aarch64-softmmu` (JIT), `qemu-aarch64-softmmu-tcti`
+и зависимостите им (glib, gio, slirp, pixman, spice-server, virglrenderer,
+zstd…). По пътя хванати два реални проблема: `libgit2` изисква `libiconv`
+(никога не е било link-вано в истинско приложение досега) и
+`codesign --remove-signature` чупеше ldid подписа на 10 framework-а
+(грешката се губеше в `find -exec`, сега CI гърми при такава).
+
+**НЕ е верифицирано:** стартиране на реално iPhone/iPad — нямам устройство.
+Първото нещо за проверка: инсталирай IPA-то, отвори таба Ubuntu.
+
 **Известни ограничения (реални, не пропуски):**
 - QEMU може да се стартира само веднъж на процес — след `poweroff` в госта
   приложението трябва да се рестартира.
