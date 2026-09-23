@@ -92,7 +92,13 @@ Termux паритетна нужда — почти никой не ползва
 **Усилие:** средно. **Стойност:** UX паритет с Termux tabs, не е блокер за
 базова функционалност.
 
-## 5. Python (python_ios / embedded CPython) — [DONE в Сесия 4, чака build]
+## 5. Python (python_ios / embedded CPython) — [МАХНАТ в Сесия 8]
+
+python3_ios v1.0 крашваше приложението при старт (липсващи
+freetype/harfbuzz/libpng/openblas) — виж STATUS.md Сесия 8. Ubuntu табът
+има истински Python. Ако ще се връща в iOS shell таба: само с по-нов,
+самостоятелен `Python.xcframework` (като a-Shell 3.13). Историческо по-долу:
+
 
 Виж `Docs/STATUS.md` Сесия 4 за пълните детайли — `python3_ios` +
 bundlнат CPython 3.7.13 stdlib (свален от `python/cpython` @ `v3.7.13`,

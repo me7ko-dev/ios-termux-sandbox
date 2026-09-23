@@ -42,18 +42,8 @@ let package = Package(
         // holzschu's original release URL. See Docs/STATUS.md.
         .package(url: "https://github.com/me7ko-dev/network_ios.git", branch: "master"),
 
-        // Python 3.7.13 interpreter, precompiled for iOS — see
-        // Docs/STATUS.md for how PYTHONHOME is wired up (bundled stdlib
-        // resource, since these binary targets ship no .py files at all).
-        //
-        // branch, not a version tag: the only tag this repo has (v1.0)
-        // predates Package.swift being added at all — `swift package
-        // resolve` fails outright trying to read it ("/Package.swift
-        // doesn't exist"). Only `master` has SPM support.
-        .package(url: "https://github.com/holzschu/python3_ios.git", branch: "master"),
-
-        // Lua interpreter, precompiled for iOS. Same story as python3_ios
-        // above: its only tag (1.0) has no Package.swift, master does.
+        // Lua interpreter, precompiled for iOS. Tracks master: its only tag
+        // (1.0) predates Package.swift, so `swift package resolve` can't use it.
         .package(url: "https://github.com/holzschu/lua_ios.git", branch: "master"),
 
         // Swift bindings to libgit2, for the "git" command below. Tracks the
@@ -141,6 +131,19 @@ let package = Package(
             ]
         ),
 
+        // Runtime deps of ios_system's curl_ios/ssh_cmd frameworks, same
+        // author's prebuilt release (checksums computed from the real assets).
+        .binaryTarget(
+            name: "openssl",
+            url: "https://github.com/holzschu/libssh2-for-iOS/releases/download/v1.2/openssl.xcframework.zip",
+            checksum: "b13ab2943ebe5ced0048fb917dd36dd9756ab20da9c50b1f667eebac39c689ed"
+        ),
+        .binaryTarget(
+            name: "libssh2",
+            url: "https://github.com/holzschu/libssh2-for-iOS/releases/download/v1.2/libssh2.xcframework.zip",
+            checksum: "47015c95d80a6e6b222698682ea09db1d97f9e7c4936481b4a53fae68fdc33f5"
+        ),
+
         // MARK: - App shell (terminal UI + command registry)
         // NOTE: this is a library target, not an .app product, because SwiftPM
         // cannot itself produce a signed iOS .app bundle. On Mac, wrap this in
@@ -153,7 +156,10 @@ let package = Package(
             dependencies: [
                 .product(name: "ios_system", package: "ios_system"),
                 .product(name: "network_ios", package: "network_ios"),
-                .product(name: "Python", package: "python3_ios"),
+                // ios_system's curl_ios and ssh_cmd link @rpath/openssl + libssh2
+                // but its Package.swift doesn't ship them -> dyld abort at launch.
+                "openssl",
+                "libssh2",
                 .product(name: "lua_ios", package: "lua_ios"),
                 "SwiftTerm",
                 "SysInfoCommand",
@@ -168,18 +174,7 @@ let package = Package(
                 // item 1. Loaded explicitly via addCommandList() in
                 // ShellEngine.start(); not something ios_system registers on
                 // its own from a plain `initializeEnvironment()` call.
-                .copy("Resources/commandDictionary.plist"),
-
-                // python3_ios ships zero .py files — the interpreter binary
-                // alone has no standard library to import os/json/etc. from.
-                // This is a trimmed (no test/idlelib/turtledemo) copy of
-                // CPython v3.7.13's own Lib/ directory — the exact version
-                // python3_ios embeds — laid out as PYTHONHOME expects:
-                // <PYTHONHOME>/lib/python3.7/*.py. See ShellEngine.start()
-                // for where PYTHONHOME actually gets pointed at this bundle,
-                // and Docs/STATUS.md for provenance/licensing (PSF license
-                // included alongside).
-                .copy("Resources/PythonHome")
+                .copy("Resources/commandDictionary.plist")
             ]
         )
     ]

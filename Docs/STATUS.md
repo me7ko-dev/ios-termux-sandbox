@@ -2,6 +2,53 @@
 
 Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
 
+## Сесия 8 (2026-09-23) — ✅ първо успешно стартиране на iPhone
+
+**Резултат:** приложението е билднато на Mac, инсталирано през Xcode
+(безплатен Apple акаунт) на iPhone 13 Pro Max и **стартира и работи** —
+преди това мигаше и се затваряше веднага. Проверено: процесът е жив 15 s
+след старта, няма нов crash лог.
+
+Какво пречеше и какво е променено (всяко от тези спираше следващата стъпка):
+
+| # | Симптом | Причина | Поправка |
+|---|---|---|---|
+| 1 | `rsync … Operation not permitted`, BUILD FAILED | Xcode 15+ пуска build скриптовете в sandbox; „Embed QEMU frameworks“ пише в `.app/Frameworks`, без да е деклариран output | `ENABLE_USER_SCRIPT_SANDBOXING: NO` в `App/project.yml` |
+| 2 | Инсталацията отказва: `Code signing identifier (…softmmu) does not match bundle identifier (…softmmu-tcti)` | скриптът подписваше с `--preserve-metadata=identifier` → запазваше identifier-а на UTM, който за TCTI варианта не съвпада с bundle ID | подписване без preserve-metadata — identifier идва от Info.plist на всеки framework |
+| 3 | „invalid code signature“ при стартиране; `codesign --verify` → `sealed resource is missing or invalid` | при инкрементален билд скриптът копира и преподписва QEMU наново, а Xcode не преподписва `.app` → печатът на приложението вече не съвпада | stamp файл в `DERIVED_FILE_DIR`: копиране/подписване само ако `Vendor/QEMU` е по-нов. Проверено: чист и инкрементален билд → подписът е валиден |
+| 4 | Мига и се затваря (crash лог: `Library not loaded: @rpath/openssl.framework/openssl`, от `pythonE`) | ios_system `curl_ios`/`ssh_cmd` и python3_ios v1.0 линкват openssl, libssh2, freetype, harfbuzz, libpng, openblas — нито един от тях не се доставя от техните Package.swift | добавени `openssl` + `libssh2` като binaryTarget-и (holzschu/libssh2-for-iOS `v1.2`, checksum-и сметнати от реалните zip-ове); **Python 3.7 (python3_ios) махнат** от iOS shell таба — за неговите 4 графични/математически зависимости няма съвместим release. Ubuntu табът има истински Python 3.10 |
+
+Също: `DEVELOPMENT_TEAM` в `App/project.yml`, за да не се губи при
+`xcodegen generate`. Проверено с `otool -L` върху всички Mach-O в `.app`:
+няма липсващи `@rpath` зависимости.
+
+**Махнато:** `python3_ios` dependency, `Resources/PythonHome` (CPython 3.7
+stdlib, 16 MB), `configurePythonEnvironment()` в `ShellEngine`,
+`python`/`python3` от `commandDictionary.plist`. `python` в iOS shell таба
+вече дава „command not found“ — очаквано.
+
+**Как се билдва локално** (`xcode-select` сочи CommandLineTools, затова `DEVELOPER_DIR`):
+
+```sh
+cd App && xcodegen generate --spec project.yml
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project TermuxSandbox.xcodeproj -scheme TermuxSandbox \
+  -destination 'generic/platform=iOS' -allowProvisioningUpdates \
+  -skipPackagePluginValidation build
+xcrun devicectl device install app --device <id> <…>/TermuxSandbox.app
+```
+
+**Ограничения на безплатния акаунт:** максимум 3 приложения от Xcode на
+телефона; подписът изтича след 7 дни; memory entitlements
+(`increased-memory-limit`, `extended-virtual-addressing`) не са разрешени —
+локално са махнати от `App.entitlements` (тази промяна **не е commit-ната**,
+за да ги има в CI/платен акаунт). Без тях iOS дава по-малко памет — ако
+Ubuntu VM-ът бъде убит при boot, първо да се намали RAM-ът в
+`DeviceProfile.swift`.
+
+**Не е проверено още:** сваляне на Ubuntu image-а и boot на телефона.
+
+
 ## Сесия 7 (2026-09-23) — Claude Code автоматично в Ubuntu терминала
 
 Всеки път, когато VM-ът стане готов, приложението проверява за

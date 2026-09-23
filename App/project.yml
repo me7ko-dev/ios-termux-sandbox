@@ -44,9 +44,13 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.me7ko.termuxsandbox
+        DEVELOPMENT_TEAM: FUW9HQV9D7
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        # The embed script rsyncs Vendor/QEMU into the .app; Xcode 15+ script
+        # sandboxing blocks that since the frameworks are not declared outputs.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
     postCompileScripts:
       - name: Embed QEMU frameworks
         basedOnDependencyAnalysis: false
@@ -59,12 +63,21 @@ targets:
           fi
           DEST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
           mkdir -p "$DEST"
+          # Re-copying/re-signing on an incremental build changes the binaries
+          # after Xcode has already sealed the .app (it doesn't re-sign when
+          # nothing else changed) -> "sealed resource is missing or invalid".
+          STAMP="${DERIVED_FILE_DIR}/qemu-embedded-${EXPANDED_CODE_SIGN_IDENTITY:-unsigned}"
+          if [ -f "$STAMP" ] && [ -d "$DEST/qemu-aarch64-softmmu.framework" ] && [ -z "$(find "$SRC" -newer "$STAMP" -print -quit)" ]; then
+            exit 0
+          fi
+          mkdir -p "${DERIVED_FILE_DIR}"; rm -f "${DERIVED_FILE_DIR}"/qemu-embedded-*
           rsync -a --delete-excluded "$SRC/" "$DEST/"
           if [ "${CODE_SIGNING_ALLOWED:-YES}" = "YES" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
             for fw in "$SRC"/*.framework; do
-              /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$DEST/$(basename "$fw")"
+              /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$DEST/$(basename "$fw")"
             done
           fi
+          touch "$STAMP"
 schemes:
   TermuxSandbox:
     build:
