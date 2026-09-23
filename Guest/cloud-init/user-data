@@ -28,6 +28,20 @@ growpart:
   devices: ["/"]
 resize_rootfs: true
 
+# Every boot, before any login is allowed (cloud-init.service is ordered
+# before systemd-user-sessions). Without JIT (TCTI interpreter) the guest is
+# so slow that the stock limits make logging in impossible:
+#  - login(1) gives up after LOGIN_TIMEOUT=60 s ("Login timed out after 60
+#    seconds"), so the serial autologin never reaches a shell;
+#  - the update-motd scripts (Python: landscape-sysinfo, release-upgrade
+#    check, ...) run on every login and take minutes;
+#  - sshd drops connections not authenticated within 120 s.
+bootcmd:
+  - sed -i 's/^LOGIN_TIMEOUT.*/LOGIN_TIMEOUT 0/' /etc/login.defs
+  - chmod -x /etc/update-motd.d/*
+  - mkdir -p /etc/ssh/sshd_config.d
+  - echo 'LoginGraceTime 0' > /etc/ssh/sshd_config.d/10-ios.conf
+
 write_files:
   # Serial console (what the app shows while the VM boots, and the fallback
   # terminal if SSH is unavailable) logs straight in, like Termux does.
