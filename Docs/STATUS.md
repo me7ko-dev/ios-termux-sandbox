@@ -2,6 +2,101 @@
 
 Repo: https://github.com/me7ko-dev/ios-termux-sandbox (private)
 
+## Сесия 5 (2026-09-23) — пълен Ubuntu 22.04 като VM в приложението
+
+**Цел:** вместо само in-process `ios_system` команди — истински Linux
+(Ubuntu 22.04, собствено ядро, systemd, apt, gcc, всичко) вътре в нашето
+native приложение, с максималната скорост, която iOS изобщо позволява.
+
+**Какво е реално възможно на iOS (без jailbreak/експлойти):**
+
+| Път | Статус |
+|---|---|
+| Hypervisor.framework (хардуерна виртуализация) | ❌ изисква частен entitlement `com.apple.private.hypervisor` — само jailbreak/TrollStore |
+| proot / chroot / fork+exec на Linux binaries | ❌ няма ptrace, fork/exec, а unsigned код не може да се изпълнява |
+| **QEMU TCG с JIT** | ✅ **най-бързото възможно** — изисква JIT: sideload (SideStore/AltStore) + StikDebug, или стартиране от Xcode |
+| QEMU TCTI (интерпретатор, UTM SE) | ✅ работи навсякъде без JIT, няколко пъти по-бавно |
+
+Затова: пълна системна VM (aarch64 гост на aarch64 iPhone), приложението
+само избира JIT build-а, когато JIT е включен (`csops` → `CS_DEBUGGED`),
+иначе TCTI. Това не е "фалшива" VM с орязани команди — гостът е
+немодифициран Ubuntu cloud image с истинско ядро 5.15.
+
+**Архитектура (нов код):**
+
+- `Sources/CQEMUBootstrap/` — C: `dlopen` на `qemu-aarch64-softmmu.framework`,
+  `qemu_init`/`qemu_main_loop`/`qemu_cleanup` на отделна pthread (8 MB стек);
+  `exit()` на QEMU се хваща с `atexit` + `pthread_exit`, за да не убие
+  приложението. Същите entry points и трик като UTM
+  (`Services/UTMProcess.m`, `UTMQemuSystem.m` — прочетени в source-а, не по памет).
+- `Sources/LinuxVM/UbuntuRelease.swift` — закован release
+  `release-20260913` (не `release/`, който се мести), SHA-256 от официалните
+  SHA256SUMS, проверени срещу реално сваляне.
+- `ImageStore.swift` — сваля ядро + initrd + qcow2 (~750 MB) в
+  Application Support (изключено от iCloud backup), проверява SHA-256.
+- `QCOW2.swift` — разширява виртуалния размер на диска от 2.2 GB на 32 GB
+  чрез редакция на qcow2 header-а (няма qemu-img на iOS). Алгоритъмът е
+  тестван върху реалния image: `qemu-img check` → „No errors“, в госта
+  `df -h /` → 31G.
+- `VMConfiguration.swift` — QEMU аргументите: `virt`, `cortex-a72`, MTTCG,
+  direct kernel boot, virtio-blk/net/rng, user-mode мрежа с
+  `127.0.0.1:2222 → :22`, серийна конзола на `127.0.0.1:45022`. RAM ≈
+  половината от `os_proc_available_memory()` (768 MB–4 GB), до 4 vCPU.
+- `SerialConsole.swift` — показва boot лога; резервен терминал.
+- `SSHTerminalSession.swift` — Citadel `withPTY`: истински PTY, resize
+  събития (vim/htop/tmux работят правилно). API-то проверено в Citadel
+  0.12.1 и Wellz26/swift-nio-ssh source-а.
+- `LinuxTerminalViewController.swift` — целият поток в терминала:
+  сваляне → boot (сериен лог) → при маркера `IOS-VM-READY` превключва на SSH.
+- `Guest/cloud-init/` + `Scripts/make-seed-iso.py` → `Resources/seed.iso`:
+  user `ubuntu` / парола `ubuntu`, sudo без парола, autologin на серийната
+  конзола, growpart, маркер за готовност, синхронизация на часовника.
+- Root view-ът вече е tab bar: **Ubuntu** (VM) и **iOS shell** (стария ios_system).
+
+**Верифицирано реално (qemu-system-aarch64 8.2, TCG, същите аргументи):**
+Ubuntu 22.04.5, ядро 5.15.0-191 aarch64, cloud-init `done`, SSH вход с
+парола, PTY resize (100x30 → 120x40 видян от `stty size`), autologin на
+серийната конзола, `sudo`, 31 GB root, `apt-get install htop
+build-essential`, `gcc` компилира и пуска C програма, рестарт на госта →
+пак стига до `IOS-VM-READY`. Първи boot (с cloud-init) ≈ 2.5 мин под TCG на
+4-ядрен x86 сървър.
+
+**Хванат и оправен реален бъг:** ядрото на cloud image-а няма драйвер за
+RTC-то на `virt` (`rtc-pl031` е в `linux-modules-extra`), а NTP може да е
+недостъпен → гостът тръгва с часовник на датата на build-а и `apt update`
+отказва всички repo-та („not valid yet“). Поправка: приложението подава
+`ios.epoch=<unix time>` на kernel cmdline, `ios-clock.service` сверява
+часовника рано при всеки boot, а при всяко SSH свързване приложението
+изпълнява `sudo date -s @now` (покрива времето, докато iOS е държал
+приложението suspend-нато).
+
+**QEMU за iOS:** не се build-ва от source (това е 1–2 часа
+`build_dependencies.sh` на UTM) — `Scripts/fetch-qemu-frameworks.sh`
+вади от официалните `UTM.ipa` (JIT) и `UTM-SE.ipa` (TCTI) само
+`qemu-aarch64-softmmu` и транзитивните му `@rpath` зависимости (`otool -L`),
+преименува TCTI варианта на `qemu-aarch64-softmmu-tcti.framework` и
+проверява с `nm`, че `qemu_init`/`qemu_main_loop`/`qemu_cleanup` са
+експортирани. **Лиценз:** QEMU е GPLv2 — ако разпространяваш приложението,
+то трябва да е под GPL-съвместими условия.
+
+**Инсталируемо приложение:** `App/project.yml` (XcodeGen) + нов CI job
+`package-ipa` → artifact `UbuntuTerminal-ipa` (ldid fake-sign с
+`increased-memory-limit` + `extended-virtual-addressing`, като UTM).
+Инсталиране: SideStore/AltStore → после StikDebug за JIT.
+
+**Известни ограничения (реални, не пропуски):**
+- QEMU може да се стартира само веднъж на процес — след `poweroff` в госта
+  приложението трябва да се рестартира.
+- iOS suspend-ва приложението във фон → VM-ът замръзва, докато не се върнеш
+  (SSH сесията може да падне; Enter отваря нова).
+- iOS 26 устройства с TXM: JIT през дебъгер работи по друг начин;
+  QEMU build-ът на UTM съдържа нужното съдействие, но на такова устройство
+  още не е тестван. Без JIT → TCTI (работи, по-бавно).
+- snapd е маскиран през kernel cmdline (seed-ването на snaps отнема минути
+  под емулация); `VMConfiguration.disableSnapd = false` го връща.
+- `ping` не работи (QEMU user networking не пренася ICMP); TCP/UDP работят.
+
+
 ## Сесия 4 (2026-09-18, продължение) — Python, Lua, git, network_ios
 
 Четири нови "библиотеки" добавени наведнъж, всяка верифицирана срещу
