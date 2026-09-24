@@ -26,6 +26,16 @@ public struct DeviceProfile: Sendable {
 
     public var desktopGeometry: String { "\(desktopWidth)x\(desktopHeight)" }
 
+    /// The desktop size for another pixels-per-point factor than the
+    /// profile's 1.75 (fewer pixels = less for the emulated guest to draw
+    /// and send), still a multiple of 8.
+    public func desktopGeometry(scale: Double) -> String {
+        let factor = scale / 1.75
+        let width = Int(Double(desktopWidth) * factor) / 8 * 8
+        let height = Int(Double(desktopHeight) * factor) / 8 * 8
+        return "\(width)x\(height)"
+    }
+
     static var machineIdentifier: String {
         var info = utsname()
         uname(&info)

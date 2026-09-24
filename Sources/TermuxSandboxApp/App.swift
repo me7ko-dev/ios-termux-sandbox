@@ -33,6 +33,9 @@ public struct TermuxSandboxRootView: View {
                 .tabItem { Label("Ubuntu", systemImage: "terminal") }
             DesktopScreen()
                 .ignoresSafeArea(.container, edges: [.top, .horizontal])
+                // The key bar rides on the keyboard itself; resizing the
+                // desktop under it would only refit and shrink the picture.
+                .ignoresSafeArea(.keyboard)
                 .tabItem { Label("Desktop", systemImage: "macwindow") }
             TerminalScreen()
                 .ignoresSafeArea(.container, edges: .top)

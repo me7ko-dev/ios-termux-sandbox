@@ -1,4 +1,5 @@
 import CommonCrypto
+import CoreGraphics
 import Foundation
 import Network
 
@@ -12,7 +13,12 @@ import Network
 ///   bandwidth we don't need: the "network" is a memcpy inside the phone.
 ///
 /// Framebuffer updates are requested continuously (incremental), one at a
-/// time, so a slow guest is never flooded.
+/// time, so a slow guest is never flooded. Frames are handed out as ready
+/// CGImages, built off the main thread and at most ~30 per second: every
+/// frame is a full copy of the framebuffer plus a texture upload, and the
+/// phone's CPU time is better spent on the emulated guest. Pointer motion
+/// is thinned to the same rate — each event is work for the guest's X
+/// server, and a 120 Hz touchscreen produces far more than it can use.
 final class VNCClient: @unchecked Sendable {
     enum Error: Swift.Error, LocalizedError {
         case protocolViolation(String)
@@ -28,9 +34,9 @@ final class VNCClient: @unchecked Sendable {
         }
     }
 
-    /// Called on the client's queue after each complete framebuffer update
-    /// with the dirty region. Read pixels with `withFramebuffer`.
-    var onUpdate: ((_ width: Int, _ height: Int) -> Void)?
+    /// Called on a background queue with the current screen, after
+    /// framebuffer updates (coalesced, see `frameInterval`).
+    var onFrame: ((CGImage) -> Void)?
     var onClose: ((Swift.Error?) -> Void)?
 
     private let port: UInt16
@@ -46,6 +52,18 @@ final class VNCClient: @unchecked Sendable {
     private(set) var width = 0
     private(set) var height = 0
     private var framebuffer = [UInt8]()
+
+    private static let frameInterval = DispatchTimeInterval.milliseconds(33)
+    private let renderQueue = DispatchQueue(label: "LinuxVM.vnc.render", qos: .userInteractive)
+    // Guarded by `lock`.
+    private var frameScheduled = false
+    private var lastFrame = DispatchTime(uptimeNanoseconds: 0)
+
+    // Pointer thinning, confined to `queue`.
+    private var pointerButtons: UInt8 = 0
+    private var pendingMotion: (x: Int, y: Int)?
+    private var motionFlushScheduled = false
+    private var lastMotion = DispatchTime(uptimeNanoseconds: 0)
 
     init(port: UInt16, password: String) {
         self.port = port
@@ -68,20 +86,39 @@ final class VNCClient: @unchecked Sendable {
         queue.async { self.finish(nil) }
     }
 
-    /// Gives read access to the current framebuffer (BGRX, width*4 stride).
-    func withFramebuffer<T>(_ body: (UnsafeRawBufferPointer, Int, Int) -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return framebuffer.withUnsafeBytes { body($0, width, height) }
+    /// Pointer state in framebuffer pixels. `buttons` is the RFB mask:
+    /// 1 left, 2 middle, 4 right, 8/16 wheel up/down. Button changes go out
+    /// at once; plain motion at most once per `frameInterval`, latest wins.
+    func sendPointer(x: Int, y: Int, buttons: UInt8) {
+        queue.async {
+            guard buttons == self.pointerButtons else {
+                // Carries its own position, so pending motion is moot.
+                self.pendingMotion = nil
+                self.pointerButtons = buttons
+                self.writePointer(x: x, y: y, buttons: buttons)
+                return
+            }
+            self.pendingMotion = (x, y)
+            guard !self.motionFlushScheduled else { return }
+            self.motionFlushScheduled = true
+            self.queue.asyncAfter(deadline: max(DispatchTime.now(), self.lastMotion + Self.frameInterval)) {
+                self.motionFlushScheduled = false
+                guard let motion = self.pendingMotion else { return }
+                self.pendingMotion = nil
+                self.lastMotion = .now()
+                self.writePointer(x: motion.x, y: motion.y, buttons: self.pointerButtons)
+            }
+        }
     }
 
-    /// Pointer state in framebuffer pixels. `buttons` is the RFB mask:
-    /// 1 left, 2 middle, 4 right, 8/16 wheel up/down.
-    func sendPointer(x: Int, y: Int, buttons: UInt8) {
+    private func writePointer(x: Int, y: Int, buttons: UInt8) {
+        lock.lock()
+        let (width, height) = (self.width, self.height)
+        lock.unlock()
         var message = Data([5, buttons])
         message.append(be16(clamp(x, width)))
         message.append(be16(clamp(y, height)))
-        send(message)
+        connection?.send(content: message, completion: .contentProcessed { _ in })
     }
 
     func sendKey(_ keysym: UInt32, down: Bool) {
@@ -187,7 +224,7 @@ final class VNCClient: @unchecked Sendable {
                 throw Error.protocolViolation("unexpected encoding \(encoding)")
             }
         }
-        onUpdate?(width, height)
+        frameChanged()
     }
 
     private func requestUpdate(incremental: Bool) {
@@ -200,6 +237,39 @@ final class VNCClient: @unchecked Sendable {
     }
 
     // MARK: - Framebuffer
+
+    /// Schedules one frame for the render queue, no sooner than
+    /// `frameInterval` after the previous one; updates arriving meanwhile
+    /// are folded into it.
+    private func frameChanged() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !frameScheduled else { return }
+        frameScheduled = true
+        renderQueue.asyncAfter(deadline: max(DispatchTime.now(), lastFrame + Self.frameInterval)) { [weak self] in
+            self?.renderFrame()
+        }
+    }
+
+    private func renderFrame() {
+        lock.lock()
+        frameScheduled = false
+        lastFrame = .now()
+        let image = Self.makeImage(framebuffer, width: width, height: height)
+        lock.unlock()
+        if let image { onFrame?(image) }
+    }
+
+    private static func makeImage(_ pixels: [UInt8], width: Int, height: Int) -> CGImage? {
+        guard width > 0, height > 0, pixels.count >= width * height * 4,
+              let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        return CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+        )
+    }
 
     private func resize(width: Int, height: Int) {
         lock.lock()

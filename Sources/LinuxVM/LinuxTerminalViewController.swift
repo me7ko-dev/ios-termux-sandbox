@@ -17,6 +17,7 @@ public final class LinuxTerminalViewController: UIViewController, TerminalViewDe
     private var ssh: SSHTerminalSession?
     private var phase = Phase.console
     private var observers: [UUID] = []
+    private var extraKeys: TerminalExtraKeys?
     /// Consecutive automatic reconnects without any output in between —
     /// stops a tight loop if sshd is really gone.
     private var autoReconnects = 0
@@ -36,6 +37,9 @@ public final class LinuxTerminalViewController: UIViewController, TerminalViewDe
         terminalView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         terminalView.terminalDelegate = self
         view.addSubview(terminalView)
+        extraKeys = TerminalExtraKeys(terminalView: terminalView) { [weak self] bytes in
+            self?.route(bytes[...])
+        }
 
         observers.append(vm.observeConsole { [weak self] data in
             guard let self, self.phase != .ssh else { return }
@@ -115,6 +119,10 @@ public final class LinuxTerminalViewController: UIViewController, TerminalViewDe
     // MARK: - TerminalViewDelegate
 
     public func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        route(extraKeys?.applyModifiers(data)[...] ?? data)
+    }
+
+    private func route(_ data: ArraySlice<UInt8>) {
         switch phase {
         case .ssh:
             ssh?.send(Data(data))

@@ -1,3 +1,4 @@
+import LinuxVM
 import UIKit
 import SwiftTerm
 
@@ -10,6 +11,7 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
     private let terminalView = TerminalView(frame: .zero)
     private let shellEngine: ShellEngine
     private var lineBuffer = ""
+    private var extraKeys: TerminalExtraKeys?
 
     public init() {
         let sandboxHome = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -29,6 +31,9 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
         terminalView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         terminalView.terminalDelegate = self
         view.addSubview(terminalView)
+        extraKeys = TerminalExtraKeys(terminalView: terminalView) { [weak self] bytes in
+            self?.handleInput(bytes[...])
+        }
 
         shellEngine.onOutput = { [weak self] data in
             self?.terminalView.feed(byteArray: Array(data)[...])
@@ -45,6 +50,10 @@ public final class TerminalViewController: UIViewController, TerminalViewDelegat
     // MARK: - TerminalViewDelegate
 
     public func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        handleInput(extraKeys?.applyModifiers(data)[...] ?? data)
+    }
+
+    private func handleInput(_ data: ArraySlice<UInt8>) {
         // While a command is running, every keystroke goes straight to its
         // stdin instead of our own line buffer — that's what lets python3's
         // REPL, sshc in interactive mode, etc. read anything at all (their

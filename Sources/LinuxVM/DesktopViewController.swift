@@ -9,8 +9,43 @@ import UIKit
 ///  - long press         → right click (context menus)
 ///  - 2-finger drag      → scroll wheel (pans the view instead when zoomed in)
 ///  - pinch              → zoom the whole desktop
-///  - toolbar            → keyboard, Esc, Tab, sticky Ctrl/Alt, arrows
+///  - key bar            → keyboard, options (resolution, zoom, restart),
+///                         Esc, Tab, sticky Ctrl/Alt/Shift/Super, Del,
+///                         Home/End/PgUp/PgDn, F1–F12 (swipe), arrows
+///
+/// The key bar sits at the bottom while the keyboard is hidden and rides
+/// on top of the keyboard (as its accessory) while it is shown, so the keys
+/// and options are always reachable.
 public final class DesktopViewController: UIViewController, UIScrollViewDelegate {
+    /// Desktop pixels per screen point. Fewer pixels = less for the
+    /// emulated guest to draw and push through VNC, bigger text.
+    enum Quality: String, CaseIterable {
+        case fast, balanced, sharp
+
+        var scale: Double {
+            switch self {
+            case .fast: return 1.25
+            case .balanced: return 1.5
+            case .sharp: return 1.75
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .fast: return "Fast"
+            case .balanced: return "Balanced"
+            case .sharp: return "Sharp"
+            }
+        }
+
+        private static let key = "LinuxVM.desktopQuality"
+
+        static var saved: Quality {
+            get { UserDefaults.standard.string(forKey: key).flatMap(Quality.init) ?? .balanced }
+            set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+        }
+    }
+
     private let vm = LinuxVMController.shared
     private var vnc: VNCClient?
     private var observers: [UUID] = []
@@ -22,15 +57,19 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
     private let messageLabel = UILabel()
     private let logView = UITextView()
     private let actionButton = UIButton(type: .system)
-    private let toolbar = UIToolbar()
     private let keyInput = KeyInputView()
+    /// Bottom of the screen while the keyboard is hidden.
+    private var bottomBar: ExtraKeysBar!
+    /// On top of the keyboard while it is shown.
+    private var keyboardBar: ExtraKeysBar!
+    /// A client that is connecting but hasn't shown a frame yet.
+    private weak var connecting: VNCClient?
     private var framebufferSize = CGSize.zero
-    private var redrawPending = false
     private var wheelAccumulator: CGFloat = 0
-    private var ctrlDown = false
-    private var altDown = false
-    private weak var ctrlItem: UIBarButtonItem?
-    private weak var altItem: UIBarButtonItem?
+    private static let modifierKeys: [(id: String, keysym: UInt32)] = [
+        ("Ctrl", 0xFFE3), ("Alt", 0xFFE9), ("Shift", 0xFFE1), ("Super", 0xFFEB),
+    ]
+    private var heldModifiers: Set<String> = []
 
     private var vncPassword: String {
         let key = "LinuxVM.vncPassword"
@@ -67,19 +106,22 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
+        // Linear both ways: trilinear would rebuild mipmaps for every frame.
         canvas.layer.magnificationFilter = .linear
-        canvas.layer.minificationFilter = .trilinear
+        canvas.layer.minificationFilter = .linear
         canvas.isHidden = true
         scrollView.addSubview(canvas)
 
-        toolbar.barStyle = .black
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.items = makeToolbarItems()
-        toolbar.isHidden = true
-        view.addSubview(toolbar)
+        bottomBar = makeKeyBar(inKeyboard: false)
+        bottomBar.translatesAutoresizingMaskIntoConstraints = false
+        bottomBar.isHidden = true
+        view.addSubview(bottomBar)
+        keyboardBar = makeKeyBar(inKeyboard: true)
 
+        keyInput.accessory = keyboardBar
         keyInput.onText = { [weak self] text in self?.typeText(text) }
         keyInput.onBackspace = { [weak self] in self?.tapKey(0xFF08) }
+        keyInput.onFocusChange = { [weak self] in self?.updateKeyBars() }
         view.addSubview(keyInput)
 
         messageLabel.numberOfLines = 0
@@ -105,10 +147,11 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
+            bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomBar.heightAnchor.constraint(equalToConstant: ExtraKeysBar.height),
             overlay.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
             overlay.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             overlay.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
@@ -192,14 +235,15 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
 
     /// Connects straight away if the VNC server is already up (it survives
     /// in the snapshot), otherwise starts it, or offers to install.
-    private func connectDesktop() async {
+    /// `restart` always (re)starts the server, e.g. for a new resolution.
+    private func connectDesktop(restart: Bool = false) async {
         guard !starting else { return }
         starting = true
         defer { starting = false }
 
-        if await attach() { return }
+        if !restart, await attach() { return }
 
-        show(message: "Starting the desktop…")
+        show(message: restart ? "Restarting the desktop…" : "Starting the desktop…")
         let installed = (try? await vm.shell.run("test -f ~/.ios-desktop-installed && echo yes"))?.contains("yes") == true
         guard installed else {
             pendingAction = .install
@@ -249,7 +293,7 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
         guard let script = LinuxVMController.bundledScript("desktop-start") else { return }
         try await vm.shell.run(GuestShell.scriptCommand(
             script,
-            arguments: [vm.profile.desktopGeometry],
+            arguments: [vm.profile.desktopGeometry(scale: Quality.saved.scale)],
             environment: ["IOS_VNC_PASSWORD": vncPassword]
         ))
     }
@@ -266,14 +310,15 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
 
     private func attachOnce() async -> Bool {
         let client = VNCClient(port: vm.configuration.vncPort, password: vncPassword)
+        connecting = client
         // Only the first result matters; keep at most one buffered so every
         // later frame doesn't pile up in an unread stream.
         let firstFrame = AsyncStream<Bool>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            client.onUpdate = { [weak self, weak client] _, _ in
+            client.onFrame = { [weak self, weak client] image in
                 continuation.yield(true)
                 DispatchQueue.main.async {
-                    guard let self, let client else { return }
-                    self.scheduleRedraw(from: client)
+                    guard let self, let client, client === self.vnc || client === self.connecting else { return }
+                    self.display(image)
                 }
             }
             client.onClose = { [weak self, weak client] error in
@@ -291,7 +336,7 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
                 vnc = client
                 overlay.isHidden = true
                 canvas.isHidden = false
-                toolbar.isHidden = false
+                updateKeyBars()
                 return true
             }
             return false
@@ -303,7 +348,7 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
         guard vnc === client else { return }
         vnc = nil
         canvas.isHidden = true
-        toolbar.isHidden = true
+        updateKeyBars()
         if vm.state == .ready {
             // e.g. the socket died while suspended, or the user logged out.
             Task { await connectDesktop() }
@@ -312,36 +357,15 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
 
     // MARK: - Rendering
 
-    /// Coalesces bursts of framebuffer updates into one layer update per
-    /// main-runloop turn.
-    private func scheduleRedraw(from client: VNCClient) {
-        guard !redrawPending else { return }
-        redrawPending = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.redrawPending = false
-            guard let image = client.withFramebuffer({ pixels, width, height in
-                Self.makeImage(pixels, width: width, height: height)
-            }) else { return }
-            let size = CGSize(width: image.width, height: image.height)
-            if size != self.framebufferSize {
-                self.framebufferSize = size
-                self.scrollView.zoomScale = 1
-                self.layoutCanvas()
-            }
-            self.canvas.layer.contents = image
+    /// Frames arrive ready-made and already rate-limited (see VNCClient).
+    private func display(_ image: CGImage) {
+        let size = CGSize(width: image.width, height: image.height)
+        if size != framebufferSize {
+            framebufferSize = size
+            scrollView.zoomScale = 1
+            layoutCanvas()
         }
-    }
-
-    private static func makeImage(_ pixels: UnsafeRawBufferPointer, width: Int, height: Int) -> CGImage? {
-        guard width > 0, height > 0, let base = pixels.baseAddress,
-              let provider = CGDataProvider(data: Data(bytes: base, count: width * height * 4) as CFData) else { return nil }
-        return CGImage(
-            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
-        )
+        canvas.layer.contents = image
     }
 
     // MARK: - Pointer
@@ -415,45 +439,120 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
         }
     }
 
-    // MARK: - Keyboard
+    // MARK: - Keyboard and key bars
 
-    private func makeToolbarItems() -> [UIBarButtonItem] {
-        func key(_ title: String, _ keysym: UInt32) -> UIBarButtonItem {
-            UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.tapKey(keysym) })
+    private func makeKeyBar(inKeyboard: Bool) -> ExtraKeysBar {
+        func key(_ title: String, _ keysym: UInt32, repeats: Bool = false, symbol: String? = nil) -> ExtraKeysBar.Key {
+            ExtraKeysBar.Key(title, symbol: symbol, repeats: repeats) { [weak self] in self?.tapKey(keysym) }
         }
-        let keyboard = UIBarButtonItem(image: UIImage(systemName: "keyboard"), primaryAction: UIAction { [weak self] _ in
-            guard let self else { return }
-            if self.keyInput.isFirstResponder {
-                self.keyInput.resignFirstResponder()
-            } else {
-                self.keyInput.becomeFirstResponder()
+        let keyboard = ExtraKeysBar.Key(
+            inKeyboard ? "Hide keyboard" : "Show keyboard",
+            symbol: inKeyboard ? "keyboard.chevron.compact.down" : "keyboard"
+        ) { [weak self] in
+            self?.toggleKeyboard()
+        }
+        let options = ExtraKeysBar.Key("Desktop options", symbol: "slider.horizontal.3", menu: makeOptionsMenu())
+        let modifiers = Self.modifierKeys.map { modifier in
+            ExtraKeysBar.Key(modifier.id) { [weak self] in self?.toggleModifier(modifier.id) }
+        }
+        var keys = [key("Esc", 0xFF1B), key("Tab", 0xFF09)] + modifiers
+        keys += [key("Del", 0xFFFF, repeats: true), key("Home", 0xFF50), key("End", 0xFF57),
+                 key("PgUp", 0xFF55), key("PgDn", 0xFF56)]
+        keys += (0..<12).map { key("F\($0 + 1)", 0xFFBE + UInt32($0)) }
+        return ExtraKeysBar(
+            leading: [keyboard, options],
+            keys: keys,
+            trailing: [
+                key("Left", 0xFF51, repeats: true, symbol: "arrow.left"),
+                key("Down", 0xFF54, repeats: true, symbol: "arrow.down"),
+                key("Up", 0xFF52, repeats: true, symbol: "arrow.up"),
+                key("Right", 0xFF53, repeats: true, symbol: "arrow.right"),
+            ]
+        )
+    }
+
+    /// Built each time it opens, so the checkmark follows the setting.
+    private func makeOptionsMenu() -> UIMenu {
+        UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
+            guard let self else { return completion([]) }
+            let current = Quality.saved
+            let resolutions = Quality.allCases.map { quality in
+                UIAction(
+                    title: quality.title,
+                    subtitle: self.vm.profile.desktopGeometry(scale: quality.scale).replacingOccurrences(of: "x", with: " × "),
+                    state: quality == current ? .on : .off
+                ) { [weak self] _ in
+                    guard quality != current else { return }
+                    self?.confirmRestart(title: "Change resolution?", then: { Quality.saved = quality })
+                }
             }
+            completion([
+                UIMenu(title: "Resolution (lower is faster)", options: .displayInline, children: resolutions),
+                UIAction(title: "Reset zoom", image: UIImage(systemName: "arrow.down.right.and.arrow.up.left")) { [weak self] _ in
+                    self?.scrollView.setZoomScale(1, animated: true)
+                },
+                UIAction(title: "Restart desktop", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
+                    self?.confirmRestart(title: "Restart the desktop?")
+                },
+            ])
+        }])
+    }
+
+    private func confirmRestart(title: String, then change: @escaping () -> Void = {}) {
+        let alert = UIAlertController(title: title, message: "The desktop session restarts; open windows will close.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Restart", style: .destructive) { [weak self] _ in
+            change()
+            self?.restartDesktop()
         })
-        let ctrl = UIBarButtonItem(title: "Ctrl", primaryAction: UIAction { [weak self] _ in self?.toggleCtrl() })
-        let alt = UIBarButtonItem(title: "Alt", primaryAction: UIAction { [weak self] _ in self?.toggleAlt() })
-        ctrlItem = ctrl
-        altItem = alt
-        let flexible = UIBarButtonItem.flexibleSpace()
-        return [keyboard, flexible, key("Esc", 0xFF1B), key("Tab", 0xFF09), ctrl, alt,
-                key("←", 0xFF51), key("↑", 0xFF52), key("↓", 0xFF54), key("→", 0xFF53)]
+        present(alert, animated: true)
     }
 
-    private func toggleCtrl() {
-        ctrlDown.toggle()
-        vnc?.sendKey(0xFFE3, down: ctrlDown)
-        ctrlItem?.tintColor = ctrlDown ? .systemOrange : nil
+    private func restartDesktop() {
+        guard !starting else { return }
+        _ = keyInput.resignFirstResponder()
+        let old = vnc
+        vnc = nil
+        old?.stop()
+        canvas.isHidden = true
+        updateKeyBars()
+        Task { await connectDesktop(restart: true) }
     }
 
-    private func toggleAlt() {
-        altDown.toggle()
-        vnc?.sendKey(0xFFE9, down: altDown)
-        altItem?.tintColor = altDown ? .systemOrange : nil
+    private func toggleKeyboard() {
+        if keyInput.isFirstResponder {
+            _ = keyInput.resignFirstResponder()
+        } else {
+            _ = keyInput.becomeFirstResponder()
+        }
+    }
+
+    /// One bar at a time: the bottom one, or the one on the keyboard.
+    private func updateKeyBars() {
+        if vnc == nil, keyInput.isFirstResponder {
+            _ = keyInput.resignFirstResponder()
+        }
+        bottomBar.isHidden = vnc == nil || keyInput.isFirstResponder
+    }
+
+    private func toggleModifier(_ id: String) {
+        guard let keysym = Self.modifierKeys.first(where: { $0.id == id })?.keysym else { return }
+        let down = !heldModifiers.contains(id)
+        if down {
+            heldModifiers.insert(id)
+        } else {
+            heldModifiers.remove(id)
+        }
+        vnc?.sendKey(keysym, down: down)
+        bottomBar.setActive(down, forKey: id)
+        keyboardBar.setActive(down, forKey: id)
     }
 
     /// Sticky modifiers apply to the next key only, like Termux's extra keys.
     private func releaseModifiers() {
-        if ctrlDown { toggleCtrl() }
-        if altDown { toggleAlt() }
+        let held = heldModifiers
+        held.forEach(toggleModifier)
     }
 
     private func tapKey(_ keysym: UInt32) {
@@ -481,8 +580,24 @@ public final class DesktopViewController: UIViewController, UIScrollViewDelegate
 private final class KeyInputView: UIView, UIKeyInput {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
+    var onFocusChange: (() -> Void)?
+    var accessory: UIView?
 
     override var canBecomeFirstResponder: Bool { true }
+    override var inputAccessoryView: UIView? { accessory }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        onFocusChange?()
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        onFocusChange?()
+        return result
+    }
+
     var hasText: Bool { true }
     var autocorrectionType: UITextAutocorrectionType = .no
     var autocapitalizationType: UITextAutocapitalizationType = .none
@@ -490,6 +605,7 @@ private final class KeyInputView: UIView, UIKeyInput {
     var smartDashesType: UITextSmartDashesType = .no
     var spellCheckingType: UITextSpellCheckingType = .no
     var keyboardType: UIKeyboardType = .asciiCapable
+    var keyboardAppearance: UIKeyboardAppearance = .dark
 
     func insertText(_ text: String) { onText?(text) }
     func deleteBackward() { onBackspace?() }
